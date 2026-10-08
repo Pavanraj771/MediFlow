@@ -502,6 +502,10 @@ python generate_presentation.py
 
 ## Installation & Quickstart Guide
 
+### Google Sign-In Setup
+
+Google sign-in uses a Google OAuth **Web application** client ID. Create one in the Google Cloud Console, add the frontend origin (for example `http://localhost:5173`) as an authorized JavaScript origin, and place the same client ID in both `frontend/.env.local` (`VITE_GOOGLE_CLIENT_ID`) and `backend/.env` (`GOOGLE_CLIENT_ID`). Example variable names are in `frontend/.env.example` and `backend/.env.example`. Restart the frontend and backend after setting the values. Google registration creates a patient account; doctor access still requires an administrator-approved request.
+
 ### 1. Prerequisites
 - **Python:** Version 3.10, 3.11, or 3.12+
 - **Node.js:** Version 18.x or 20.x+
