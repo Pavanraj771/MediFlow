@@ -10,6 +10,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import DoctorDashboard from './pages/DoctorDashboard';
 import PatientDashboard from './pages/PatientDashboard';
 import PatientProfile from './pages/PatientProfile';
+import PatientAppointments from './pages/PatientAppointments';
 
 // Helper component to redirect authenticated users to their specific portal
 const HomeRedirect = () => {
@@ -43,7 +44,7 @@ function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
-          <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingTop: '104px' }}>
             <Navbar />
             <main style={{ flex: 1 }}>
               <Routes>
@@ -87,6 +88,15 @@ function App() {
                   element={
                     <ProtectedRoute allowedRoles={['PATIENT']}>
                       <PatientProfile />
+                    </ProtectedRoute>
+                  }
+                />
+
+                <Route
+                  path="/patient/appointments"
+                  element={
+                    <ProtectedRoute allowedRoles={['PATIENT']}>
+                      <PatientAppointments />
                     </ProtectedRoute>
                   }
                 />

@@ -254,6 +254,41 @@
   cursor: not-allowed;
 }
 
+.patient-secondary-button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  color: var(--text-primary, #e2e8f0);
+  background: var(--surface-card, rgba(30, 41, 59, 0.6));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 13px;
+  font: inherit;
+  font-size: 0.83rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.patient-secondary-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.patient-secondary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.patient-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .patient-text-link,
 .patient-inline-link,
 .patient-service-card__link {
@@ -573,6 +608,17 @@
   min-height: calc(100vh - 70px);
 }
 
+.patient-profile-card {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.patient-form-field input:disabled {
+  cursor: default;
+  background: var(--bg-surface-subtle);
+  opacity: 1;
+}
+
 .patient-profile-topbar {
   display: flex;
   align-items: center;
@@ -707,6 +753,11 @@
 .patient-form-field input:focus {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-primary-glow);
+}
+
+.patient-form-field input[readonly] {
+  cursor: default;
+  background: var(--bg-surface-subtle);
 }
 
 .patient-form-field--readonly > div {
@@ -879,3 +930,52 @@
     width: min(284px, calc(100vw - 32px));
   }
 }
+
+/* Patient Form Control High-Contrast Theme Overrides */
+.patient-form-field span {
+  display: block;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--heading-color);
+  margin-bottom: 6px;
+}
+
+.patient-form-field input,
+.patient-form-field select,
+.patient-form-field textarea {
+  width: 100%;
+  background: var(--surface-input);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  padding: 0 16px;
+  border-radius: 12px;
+  height: 46px;
+  outline: none;
+  font-size: 0.9rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.patient-form-field textarea {
+  height: auto;
+  padding: 12px 16px;
+}
+
+.patient-form-field input:focus,
+.patient-form-field select:focus,
+.patient-form-field textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-glow);
+}
+
+.patient-form-field input::placeholder,
+.patient-form-field select::placeholder,
+.patient-form-field textarea::placeholder {
+  color: var(--text-dim);
+  opacity: 0.85;
+}
+
+.patient-form-field select option {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-main) !important;
+}
+

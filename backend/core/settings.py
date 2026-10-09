@@ -45,6 +45,7 @@ INSTALLED_APPS = [
 
     # MediFlow local apps
     'accounts.apps.AccountsConfig',
+    'appointments.apps.AppointmentsConfig',
 ]
 
 MIDDLEWARE = [

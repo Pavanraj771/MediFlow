@@ -110,4 +110,22 @@ export const authService = {
   },
 };
 
+export const appointmentsService = {
+  getDoctors: async (params = {}) => (await api.get('/appointments/doctors/', { params })).data,
+  
+  getDoctorSlots: async (doctorId, date) => (await api.get(`/appointments/doctors/${doctorId}/slots/`, { params: { date } })).data,
+  
+  bookAppointment: async (data) => (await api.post('/appointments/', data)).data,
+  
+  getAppointments: async () => (await api.get('/appointments/')).data,
+  
+  cancelAppointment: async (id) => (await api.patch(`/appointments/${id}/`, { status: 'CANCELLED' })).data,
+
+  // Doctor endpoints
+  getSchedules: async () => (await api.get('/appointments/schedules/')).data,
+  createSchedule: async (data) => (await api.post('/appointments/schedules/', data)).data,
+  updateSchedule: async (id, data) => (await api.patch(`/appointments/schedules/${id}/`, data)).data,
+  deleteSchedule: async (id) => (await api.delete(`/appointments/schedules/${id}/`)).data,
+};
+
 export default api;

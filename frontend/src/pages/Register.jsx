@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/api';
@@ -30,6 +30,10 @@ export const Register = () => {
     password: '',
     confirm_password: '',
     role: 'PATIENT',
+    department: '',
+    license_number: '',
+    years_experience: '',
+    bio: '',
   });
 
   const [localError, setLocalError] = useState('');
@@ -40,12 +44,24 @@ export const Register = () => {
   const [emailVerified, setEmailVerified] = useState(false);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [resendTimer, setResendTimer] = useState(0);
+
+  useEffect(() => {
+    let timer;
+    if (resendTimer > 0) {
+      timer = setInterval(() => {
+        setResendTimer((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [resendTimer]);
 
   const handleChange = (e) => {
     if (e.target.name === 'email') {
       setEmailVerified(false);
       setOtpSent(false);
       setOtp('');
+      setResendTimer(0);
       setSuccessMessage('');
     }
     setFormData({
@@ -66,8 +82,12 @@ export const Register = () => {
     try {
       const result = await authService.sendEmailOTP(email);
       setOtpSent(true);
+      setResendTimer(30);
       setSuccessMessage(result.message);
     } catch (err) {
+      if (err.response?.status === 429) {
+        setResendTimer(30);
+      }
       setLocalError(err.response?.data?.detail || err.response?.data?.email?.[0] || 'Could not send the OTP. Please try again.');
     } finally {
       setIsSendingOtp(false);
@@ -114,6 +134,11 @@ export const Register = () => {
       return;
     }
 
+    if (formData.role === 'DOCTOR' && !formData.department) {
+      setLocalError('Please select your medical department.');
+      return;
+    }
+
     // Block reserved administrator credentials
     if (formData.username.trim() === ADMIN_RESERVED_USERNAME) {
       setLocalError(
@@ -141,22 +166,29 @@ export const Register = () => {
 
     setIsSubmitting(true);
     try {
-      const user = await register({
+      const payload = {
         username: formData.username.trim(),
         first_name: formData.first_name,
         last_name: formData.last_name,
-        email: formData.email,
+        email: formData.email.trim().toLowerCase(),
         phone_number: formData.phone_number,
         password: formData.password,
         role: formData.role,
-      });
+      };
+      if (formData.role === 'DOCTOR') {
+        payload.department = formData.department;
+        payload.license_number = formData.license_number;
+        payload.years_experience = formData.years_experience;
+        payload.bio = formData.bio;
+      }
+      const user = await register(payload);
       if (formData.role === 'DOCTOR') {
         setSuccessMessage(user?.message || 'Doctor account request sent. You can sign in after an administrator approves it.');
       } else {
         navigate('/patient', { replace: true });
       }
-    } catch {
-      // Error handled by AuthContext
+    } catch (err) {
+      setLocalError(err.message || 'Account creation failed. Please check form fields.');
     } finally {
       setIsSubmitting(false);
     }
@@ -417,8 +449,29 @@ export const Register = () => {
             </div>
             {!emailVerified && (
               <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
-                <button type="button" onClick={handleSendOtp} disabled={isSendingOtp || !formData.email.trim()} style={{ padding: '9px 13px', borderRadius: 'var(--radius-md)', background: 'var(--color-primary)', color: '#fff', fontWeight: 700, opacity: isSendingOtp ? 0.65 : 1 }}>
-                  {isSendingOtp ? 'Sending…' : otpSent ? 'Resend OTP' : 'Send OTP'}
+                <button
+                  type="button"
+                  onClick={handleSendOtp}
+                  disabled={isSendingOtp || resendTimer > 0 || !formData.email.trim()}
+                  style={{
+                    padding: '9px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    background: resendTimer > 0 ? 'var(--surface-input)' : 'var(--color-primary)',
+                    color: resendTimer > 0 ? 'var(--text-muted)' : '#fff',
+                    border: resendTimer > 0 ? '1px solid var(--border-subtle)' : 'none',
+                    fontWeight: 700,
+                    cursor: isSendingOtp || resendTimer > 0 || !formData.email.trim() ? 'not-allowed' : 'pointer',
+                    opacity: isSendingOtp ? 0.65 : 1,
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {isSendingOtp
+                    ? 'Sending…'
+                    : resendTimer > 0
+                    ? `Resend OTP (${resendTimer}s)`
+                    : otpSent
+                    ? 'Resend OTP'
+                    : 'Send OTP'}
                 </button>
                 {otpSent && <>
                   <input aria-label="Email OTP" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit OTP" style={{ ...inputStyle, width: '130px' }} />
@@ -431,22 +484,106 @@ export const Register = () => {
             {emailVerified && <div role="status" style={{ marginTop: '8px', color: 'var(--color-success)', fontSize: '0.82rem', fontWeight: 600 }}>Email verified</div>}
           </div>
 
-          {/* Phone */}
-          <div>
-            <label style={labelStyle} htmlFor="reg-phone">Phone Number <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional)</span></label>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Phone size={16} style={{ position: 'absolute', left: '12px', color: 'var(--text-dim)', pointerEvents: 'none' }} />
-              <input
-                id="reg-phone"
-                type="tel"
-                name="phone_number"
-                value={formData.phone_number}
-                onChange={handleChange}
-                placeholder="+1 (555) 000-0000"
-                style={inputWithIconStyle}
-              />
+          <div style={{ display: 'grid', gridTemplateColumns: formData.role === 'DOCTOR' ? '1fr 1fr' : '1fr', gap: '14px' }}>
+            {/* Phone */}
+            <div>
+              <label style={labelStyle} htmlFor="reg-phone">Phone Number <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional)</span></label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <Phone size={16} style={{ position: 'absolute', left: '12px', color: 'var(--text-dim)', pointerEvents: 'none' }} />
+                <input
+                  id="reg-phone"
+                  type="tel"
+                  name="phone_number"
+                  value={formData.phone_number}
+                  onChange={handleChange}
+                  placeholder="+1 (555) 000-0000"
+                  style={inputWithIconStyle}
+                />
+              </div>
             </div>
+
+            {/* Department (Only for Doctors) */}
+            {formData.role === 'DOCTOR' && (
+              <div>
+                <label style={labelStyle} htmlFor="reg-department">Medical Department</label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <Stethoscope size={16} style={{ position: 'absolute', left: '12px', color: 'var(--text-dim)', pointerEvents: 'none' }} />
+                  <select
+                    id="reg-department"
+                    name="department"
+                    required
+                    value={formData.department || ''}
+                    onChange={handleChange}
+                    style={{ ...inputWithIconStyle, appearance: 'none' }}
+                  >
+                    <option value="" disabled>Select department</option>
+                    <option value="CARDIOLOGY">Cardiology</option>
+                    <option value="NEUROLOGY">Neurology</option>
+                    <option value="GENERAL_MEDICINE">General Medicine</option>
+                    <option value="ORTHOPEDICS">Orthopedics</option>
+                    <option value="PEDIATRICS">Pediatrics</option>
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Extra Doctor Fields */}
+          {formData.role === 'DOCTOR' && (
+            <>
+              <div style={{
+                padding: '16px',
+                borderRadius: 'var(--radius-md)',
+                background: 'rgba(16, 185, 129, 0.07)',
+                border: '1px solid rgba(16, 185, 129, 0.2)',
+                marginBottom: '4px'
+              }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--color-doctor)', marginBottom: '14px', letterSpacing: '0.05em' }}>
+                  PROFESSIONAL INFORMATION
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div>
+                    <label style={labelStyle} htmlFor="reg-license">Medical License No.</label>
+                    <input
+                      id="reg-license"
+                      type="text"
+                      name="license_number"
+                      value={formData.license_number}
+                      onChange={handleChange}
+                      placeholder="e.g. MCI-123456"
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle} htmlFor="reg-experience">Years of Experience</label>
+                    <input
+                      id="reg-experience"
+                      type="number"
+                      name="years_experience"
+                      min="0"
+                      max="60"
+                      value={formData.years_experience}
+                      onChange={handleChange}
+                      placeholder="e.g. 8"
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+                <div style={{ marginTop: '14px' }}>
+                  <label style={labelStyle} htmlFor="reg-bio">Brief Professional Bio <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional)</span></label>
+                  <textarea
+                    id="reg-bio"
+                    name="bio"
+                    rows={3}
+                    value={formData.bio}
+                    onChange={handleChange}
+                    placeholder="e.g. 8 years specializing in interventional cardiology..."
+                    style={{ ...inputStyle, resize: 'vertical', padding: '10px 14px', lineHeight: 1.6 }}
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Password */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
@@ -486,6 +623,7 @@ export const Register = () => {
               </div>
             </div>
           </div>
+
 
           <button
             type="submit"

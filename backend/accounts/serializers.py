@@ -22,7 +22,20 @@ class UserSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
         ]
-        read_only_fields = ["id", "role", "is_active", "created_at"]
+        read_only_fields = ["id", "email", "role", "is_active", "created_at"]
+
+    def validate_username(self, value):
+        if value:
+            value = value.strip()
+            if value == _ADMIN_RESERVED_USERNAME:
+                raise serializers.ValidationError(
+                    "This username is reserved for system administration. Please choose a different username."
+                )
+            user_id = self.instance.id if self.instance else None
+            if User.objects.filter(username=value).exclude(id=user_id).exists():
+                raise serializers.ValidationError("This username is already taken.")
+            return value
+        return None
 
 
 # Reserved admin credentials — cannot be used during self-registration
@@ -94,7 +107,7 @@ class DoctorAccountRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DoctorAccountRequest
-        fields = ["id", "email", "username", "password", "first_name", "last_name", "phone_number", "status", "created_at"]
+        fields = ["id", "email", "username", "password", "first_name", "last_name", "phone_number", "department", "license_number", "years_experience", "bio", "status", "created_at"]
         read_only_fields = ["id", "status", "created_at"]
 
     def validate_email(self, value):

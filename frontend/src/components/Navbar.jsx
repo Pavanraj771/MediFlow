@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import PatientAvatarMenu from './PatientAvatarMenu';
+import DoctorAvatarMenu from './DoctorAvatarMenu';
 import {
   Activity,
   Shield,
@@ -58,20 +59,24 @@ export const Navbar = () => {
 
   return (
     <header style={{
-      position: 'sticky',
-      top: 0,
+      position: 'fixed',
+      top: '12px',
+      left: '50%',
+      transform: 'translateX(-50%)',
       zIndex: 50,
-      width: '100%',
-      backgroundColor: 'var(--bg-glass)',
-      backdropFilter: 'blur(16px)',
-      borderBottom: '1px solid var(--border-subtle)',
-      transition: 'background-color 0.2s, border-color 0.2s',
+      width: 'calc(100% - 32px)',
+      maxWidth: '1280px',
+      backgroundColor: 'var(--bg-glass-card)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: '50px',
+      boxShadow: 'var(--shadow-md)',
+      transition: 'all 0.25s ease',
     }}>
       <div style={{
-        maxWidth: '1280px',
-        margin: '0 auto',
         padding: '0 24px',
-        height: '70px',
+        height: '82px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -188,27 +193,30 @@ export const Navbar = () => {
               </div>
 
               {user?.role === 'PATIENT' && <PatientAvatarMenu size={40} />}
+              {user?.role === 'DOCTOR' && <DoctorAvatarMenu size={40} />}
 
-              {/* Logout Button */}
-              {user?.role !== 'PATIENT' && <button
-                onClick={handleLogout}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  background: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(220, 38, 38, 0.08)',
-                  color: 'var(--color-danger)',
-                  border: isDark ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(220, 38, 38, 0.2)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '0.82rem',
-                  fontWeight: 600,
-                }}
-                title="Log out of session"
-              >
-                <LogOut size={15} />
-                <span>Sign Out</span>
-              </button>}
+              {/* Logout Button for roles without a dedicated avatar dropdown */}
+              {user?.role !== 'PATIENT' && user?.role !== 'DOCTOR' && (
+                <button
+                  onClick={handleLogout}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 14px',
+                    background: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(220, 38, 38, 0.08)',
+                    color: 'var(--color-danger)',
+                    border: isDark ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(220, 38, 38, 0.2)',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                  }}
+                  title="Log out of session"
+                >
+                  <LogOut size={15} />
+                  <span>Sign Out</span>
+                </button>
+              )}
             </>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

@@ -68,6 +68,8 @@
   --banner-patient: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(15, 23, 42, 0.95));
   --card-code-bg: rgba(0, 0, 0, 0.35);
   --table-head-bg: rgba(0, 0, 0, 0.3);
+  --surface-hover: rgba(255, 255, 255, 0.04);
+  --surface-input: rgba(255, 255, 255, 0.06);
 }
 
 /* LIGHT THEME TOKENS */
@@ -129,6 +131,8 @@
   --banner-patient: linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(255, 255, 255, 0.95));
   --card-code-bg: #e2e8f0;
   --table-head-bg: #f8fafc;
+  --surface-hover: rgba(0, 0, 0, 0.03);
+  --surface-input: rgba(0, 0, 0, 0.05);
 }
 
 /* Base Reset */

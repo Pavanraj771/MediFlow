@@ -9,7 +9,6 @@ import {
   HeartPulse,
   ShieldCheck,
   Stethoscope,
-  UserRound,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import PatientAvatarMenu from '../components/PatientAvatarMenu';
@@ -22,6 +21,7 @@ const services = [
     description: 'Keep track of visits with your care team and stay ready for your next consultation.',
     accent: 'blue',
     tag: 'Care coordination',
+    link: '/patient/appointments',
   },
   {
     icon: HeartPulse,
@@ -64,12 +64,6 @@ const PatientDashboard = () => {
           <p className="patient-welcome-card__intro">
             Your health information and care services, together in one calm and secure space.
           </p>
-          <div className="patient-welcome-card__actions">
-            <Link to="/patient/profile" className="patient-primary-button">
-              <UserRound size={17} /> View your profile
-            </Link>
-            <a href="#services" className="patient-text-link">Explore patient services <ArrowRight size={16} /></a>
-          </div>
         </div>
         <div className="patient-welcome-card__decoration" aria-hidden="true">
           <div className="patient-welcome-card__orb patient-welcome-card__orb--one" />

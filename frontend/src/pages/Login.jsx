@@ -110,7 +110,7 @@ export const Login = () => {
               marginBottom: '24px'
             }}>
               <Shield size={14} />
-              SECURE IDENTITY & ROLE-BASED ACCESS
+              SECURE IDENTITY
             </div>
 
             <h1 style={{
