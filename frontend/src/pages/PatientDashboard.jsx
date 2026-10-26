@@ -1,14 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Activity,
-  ArrowRight,
-  CalendarDays,
-  ClipboardPlus,
-  FileHeart,
-  HeartPulse,
-  ShieldCheck,
-  Stethoscope,
+  Activity, ArrowRight, CalendarDays, ClipboardPlus, FileHeart,
+  HeartPulse, ShieldCheck, Stethoscope, UserRound, MessageSquare,
+  FlaskConical, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import PatientAvatarMenu from '../components/PatientAvatarMenu';
@@ -22,28 +17,79 @@ const services = [
     accent: 'blue',
     tag: 'Care coordination',
     link: '/patient/appointments',
+    linkLabel: 'Manage appointments',
+  },
+  {
+    icon: MessageSquare,
+    title: 'Care Messages',
+    description: 'Direct secure follow-up communication with your treating doctors post-visit.',
+    accent: 'blue',
+    tag: 'Doctor follow-up',
+    link: '/patient/messages',
+    linkLabel: 'Open chat inbox',
+  },
+  {
+    icon: FlaskConical,
+    title: 'Lab & Diagnostic Reports',
+    description: 'Track requisition orders, upload external tests, and view doctor clinical interpretations.',
+    accent: 'teal',
+    tag: 'Diagnostic tests',
+    link: '/patient/lab-reports',
+    linkLabel: 'View lab tests',
   },
   {
     icon: HeartPulse,
-    title: 'Health records',
-    description: 'Review health notes and vital readings shared with you after a consultation.',
-    accent: 'green',
-    tag: 'Your health history',
+    title: 'Vitals & Health Tracker',
+    description: 'Log daily home blood pressure, blood glucose, weight, and track healthy trends over time.',
+    accent: 'red',
+    tag: 'Chronic monitoring',
+    link: '/patient/vitals-tracker',
+    linkLabel: 'Track vitals',
   },
   {
     icon: ClipboardPlus,
-    title: 'Prescriptions',
-    description: 'Find medication instructions and care guidance from your clinician in one place.',
+    title: 'Prescriptions & Pill Routine',
+    description: 'Interactive daily pill adherence schedule, medication instructions, and 1-click refills.',
     accent: 'purple',
-    tag: 'Treatment guidance',
+    tag: 'Treatment & refills',
+    link: '/patient/prescriptions',
+    linkLabel: 'Daily pill schedule',
+  },
+  {
+    icon: ShieldAlert,
+    title: 'Emergency Medical ID',
+    description: 'Digital medical passport with scannable QR pass, blood group, critical alerts & emergency contacts.',
+    accent: 'orange',
+    tag: 'Life-saving pass',
+    link: '/patient/emergency-id',
+    linkLabel: 'View Emergency ID',
   },
   {
     icon: FileHeart,
-    title: 'Personal health profile',
-    description: 'Keep your contact information current so your care team can reach you when needed.',
+    title: 'Clinical Health Records',
+    description: 'Review clinical consultation notes, diagnosis, and vitals shared by your doctor.',
+    accent: 'green',
+    tag: 'Your health history',
+    link: '/patient/health-records',
+    linkLabel: 'View records',
+  },
+  {
+    icon: Stethoscope,
+    title: 'Doctor Directory',
+    description: 'Browse all available doctors by department and find the right specialist for you.',
+    accent: 'teal',
+    tag: 'Find a doctor',
+    link: '/patient/doctors',
+    linkLabel: 'Browse doctors',
+  },
+  {
+    icon: UserRound,
+    title: 'Personal Profile',
+    description: 'Keep your contact information, allergies, and emergency contacts up to date.',
     accent: 'orange',
     tag: 'Your account',
     link: '/patient/profile',
+    linkLabel: 'Open profile',
   },
 ];
 
@@ -83,7 +129,7 @@ const PatientDashboard = () => {
             <h2>Care that feels easier to follow</h2>
           </div>
           <p className="patient-section-heading__summary">
-            MediFlow helps bring your visits, health information, and treatment guidance together, so the next step in your care is easier to understand.
+            MediFlow brings your visits, health information, and treatment guidance together, so the next step in your care is easier to understand.
           </p>
         </div>
 
@@ -119,23 +165,15 @@ const PatientDashboard = () => {
         </div>
 
         <div className="patient-services-grid">
-          {services.map(({ icon: Icon, title, description, accent, tag, link }) => {
-            const content = (
-              <>
-                <div className={`patient-service-card__icon patient-service-card__icon--${accent}`}><Icon size={21} /></div>
-                <span className="patient-service-card__tag">{tag}</span>
-                <h3>{title}</h3>
-                <p>{description}</p>
-                {link && <span className="patient-service-card__link">Open profile <ArrowRight size={15} /></span>}
-              </>
-            );
-
-            return link ? (
-              <Link to={link} className="patient-service-card patient-service-card--linked" key={title}>{content}</Link>
-            ) : (
-              <article className="patient-service-card" key={title}>{content}</article>
-            );
-          })}
+          {services.map(({ icon: Icon, title, description, accent, tag, link, linkLabel }) => (
+            <Link to={link} className="patient-service-card patient-service-card--linked" key={title}>
+              <div className={`patient-service-card__icon patient-service-card__icon--${accent}`}><Icon size={21} /></div>
+              <span className="patient-service-card__tag">{tag}</span>
+              <h3>{title}</h3>
+              <p>{description}</p>
+              <span className="patient-service-card__link">{linkLabel} <ArrowRight size={15} /></span>
+            </Link>
+          ))}
         </div>
       </section>
 
@@ -145,7 +183,7 @@ const PatientDashboard = () => {
           <h2>Your care team is part of your journey</h2>
           <p>Clinical notes, readings, and prescriptions appear here when they are shared by your healthcare provider.</p>
         </div>
-        <Link to="/patient/profile" aria-label="Open personal profile"><ArrowRight size={19} /></Link>
+        <Link to="/patient/health-records" aria-label="View health records"><ArrowRight size={19} /></Link>
       </section>
 
       <footer className="patient-portal-footer">

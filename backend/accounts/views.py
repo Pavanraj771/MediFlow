@@ -11,7 +11,9 @@ from django.contrib.auth.hashers import make_password
 import logging
 from datetime import timedelta
 import secrets
-from rest_framework import generics, permissions, status
+from django.shortcuts import get_object_or_404
+from rest_framework import generics, permissions, status, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -21,17 +23,38 @@ from google.auth import exceptions as google_exceptions
 from google.oauth2 import id_token
 import jwt as pyjwt
 
-from .models import DoctorAccountRequest, EmailOTP, User, UserRole
+from .models import AuditLog, AuditLogSeverity, DoctorAccountRequest, EmailOTP, HospitalBroadcast, User, UserRole
 from .permissions import IsAdminUserRole
 from .serializers import (
+    AuditLogSerializer,
     CustomTokenObtainPairSerializer,
     DoctorAccountRequestSerializer,
+    HospitalBroadcastSerializer,
     LogoutSerializer,
     RegisterSerializer,
     UserSerializer,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def record_audit_log(actor, action, details, severity="INFO", ip_address=None):
+    """Utility to persist immutable audit records for security & HIPAA compliance."""
+    try:
+        actor_name = actor.full_name if (actor and hasattr(actor, "full_name")) else "System"
+        actor_role = getattr(actor, "role", "SYSTEM") if actor else "SYSTEM"
+        user_actor = actor if (actor and getattr(actor, "is_authenticated", False) and hasattr(actor, "pk")) else None
+        AuditLog.objects.create(
+            actor=user_actor,
+            actor_name=actor_name,
+            actor_role=actor_role,
+            action=action,
+            details=details,
+            severity=severity,
+            ip_address=ip_address or "127.0.0.1",
+        )
+    except Exception as exc:
+        logger.warning("Failed to record audit log: %s", exc)
 
 
 class RegisterView(generics.CreateAPIView):
@@ -333,11 +356,33 @@ class DoctorAccountRequestDecisionView(APIView):
             )
             
             from appointments.models import DoctorProfile
-            DoctorProfile.objects.create(user=user, department=doctor_request.department or 'GENERAL_MEDICINE')
+            years = 0
+            if doctor_request.years_experience and str(doctor_request.years_experience).isdigit():
+                years = int(doctor_request.years_experience)
+
+            DoctorProfile.objects.create(
+                user=user,
+                department=doctor_request.department or 'GENERAL_MEDICINE',
+                license_number=doctor_request.license_number or '',
+                years_experience=years,
+                bio=doctor_request.bio or '',
+            )
             
             doctor_request.status = DoctorAccountRequest.STATUS_APPROVED
+            record_audit_log(
+                request.user,
+                "DOCTOR_APPROVED",
+                f"Doctor {user.full_name} ({user.email}) approved for {doctor_request.department or 'General Medicine'} by admin {request.user.email}.",
+                "INFO"
+            )
         else:
             doctor_request.status = DoctorAccountRequest.STATUS_REJECTED
+            record_audit_log(
+                request.user,
+                "DOCTOR_REJECTED",
+                f"Doctor request for {doctor_request.email} was rejected by admin {request.user.email}.",
+                "WARNING"
+            )
         doctor_request.reviewed_at = timezone.now()
         doctor_request.save(update_fields=["status", "reviewed_at"])
         return Response({"message": f"Doctor request {doctor_request.status.lower()}."})
@@ -372,8 +417,15 @@ class LogoutView(APIView):
                 token = RefreshToken(refresh_token)
                 token.blacklist()
             except Exception:
-                # Token might already be expired or blacklisting not active
                 pass
+
+        record_audit_log(
+            request.user,
+            "AUTH_LOGOUT",
+            f"User {request.user.email} logged out.",
+            "INFO",
+            request.META.get("REMOTE_ADDR")
+        )
 
         return Response(
             {"message": "Logged out successfully."},
@@ -402,9 +454,88 @@ class UserListView(generics.ListAPIView):
                 Q(email__icontains=search)
                 | Q(first_name__icontains=search)
                 | Q(last_name__icontains=search)
+                | Q(username__icontains=search)
             )
 
         return queryset
+
+
+class UserStatusToggleView(APIView):
+    """Admin-only toggle of user's active/inactive status."""
+    permission_classes = [IsAdminUserRole]
+
+    def patch(self, request, pk):
+        user = get_object_or_404(User, pk=pk)
+        if user.role == UserRole.ADMIN and user == request.user:
+            return Response({"detail": "Administrators cannot deactivate their own account."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        is_active = request.data.get("is_active")
+        if is_active is not None:
+            user.is_active = bool(is_active)
+        else:
+            user.is_active = not user.is_active
+        user.save(update_fields=["is_active"])
+
+        record_audit_log(
+            request.user,
+            "USER_STATUS_TOGGLED",
+            f"User {user.email} ({user.role}) status changed to {'Active' if user.is_active else 'Inactive'} by admin {request.user.email}.",
+            "INFO" if user.is_active else "WARNING"
+        )
+        return Response(UserSerializer(user).data)
+
+
+class DoctorAdminUpdateView(APIView):
+    """Admin-only endpoint to adjust doctor profile details (department, fee, bio, license)."""
+    permission_classes = [IsAdminUserRole]
+
+    def patch(self, request, pk):
+        user = get_object_or_404(User, pk=pk, role=UserRole.DOCTOR)
+        from appointments.models import DoctorProfile
+        profile, _ = DoctorProfile.objects.get_or_create(user=user)
+
+        dept = request.data.get("department")
+        fee = request.data.get("consultation_fee")
+        bio = request.data.get("bio")
+        license_num = request.data.get("license_number")
+        years_exp = request.data.get("years_experience")
+
+        if dept is not None:
+            profile.department = dept
+        if fee is not None:
+            try:
+                profile.consultation_fee = float(fee)
+            except (ValueError, TypeError):
+                pass
+        if bio is not None:
+            profile.bio = bio
+        if license_num is not None:
+            profile.license_number = license_num
+        if years_exp is not None:
+            try:
+                profile.years_experience = int(years_exp)
+            except (ValueError, TypeError):
+                pass
+        profile.save()
+
+        first_name = request.data.get("first_name")
+        last_name = request.data.get("last_name")
+        phone_number = request.data.get("phone_number")
+        if first_name is not None:
+            user.first_name = first_name
+        if last_name is not None:
+            user.last_name = last_name
+        if phone_number is not None:
+            user.phone_number = phone_number
+        user.save()
+
+        record_audit_log(
+            request.user,
+            "DOCTOR_UPDATED",
+            f"Dr. {user.full_name} ({user.email}) profile updated by admin {request.user.email}.",
+            "INFO"
+        )
+        return Response(UserSerializer(user).data)
 
 
 class UserDeleteView(APIView):
@@ -424,14 +555,92 @@ class UserDeleteView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        account_email = account.email
+        account_role = account.role
         account.delete()
+
+        record_audit_log(
+            request.user,
+            "USER_DELETED",
+            f"Account {account_email} (Role: {account_role}) deleted by admin {request.user.email}.",
+            "WARNING"
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AuditLogListView(generics.ListAPIView):
+    """Admin-only endpoint to view immutable security and access audit logs."""
+    serializer_class = AuditLogSerializer
+    permission_classes = [IsAdminUserRole]
+
+    def get_queryset(self):
+        qs = AuditLog.objects.all().order_by("-created_at")
+        action = self.request.query_params.get("action")
+        severity = self.request.query_params.get("severity")
+        search = self.request.query_params.get("search")
+
+        if action:
+            qs = qs.filter(action__iexact=action)
+        if severity:
+            qs = qs.filter(severity__iexact=severity)
+        if search:
+            qs = qs.filter(
+                Q(actor_name__icontains=search)
+                | Q(details__icontains=search)
+                | Q(action__icontains=search)
+            )
+        return qs[:250]
+
+
+class HospitalBroadcastViewSet(viewsets.ModelViewSet):
+    """Endpoint for hospital announcement banners. Authenticated users can view; Admins manage."""
+    serializer_class = HospitalBroadcastSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == UserRole.ADMIN:
+            return HospitalBroadcast.objects.all().order_by("-created_at")
+        return HospitalBroadcast.objects.filter(is_active=True).order_by("-created_at")
+
+    def perform_create(self, serializer):
+        if self.request.user.role != UserRole.ADMIN:
+            raise PermissionDenied("Only administrators can post hospital broadcasts.")
+        broadcast = serializer.save(created_by=self.request.user)
+        record_audit_log(
+            self.request.user,
+            "BROADCAST_CREATED",
+            f"Hospital alert posted: '{broadcast.title}' ({broadcast.alert_level}).",
+            "INFO"
+        )
+
+    def perform_update(self, serializer):
+        if self.request.user.role != UserRole.ADMIN:
+            raise PermissionDenied("Only administrators can edit hospital broadcasts.")
+        broadcast = serializer.save()
+        record_audit_log(
+            self.request.user,
+            "BROADCAST_UPDATED",
+            f"Hospital alert '{broadcast.title}' updated.",
+            "INFO"
+        )
+
+    def perform_destroy(self, instance):
+        if self.request.user.role != UserRole.ADMIN:
+            raise PermissionDenied("Only administrators can remove hospital broadcasts.")
+        title = instance.title
+        instance.delete()
+        record_audit_log(
+            self.request.user,
+            "BROADCAST_DELETED",
+            f"Hospital alert '{title}' removed.",
+            "WARNING"
+        )
 
 
 class AuthOverviewView(APIView):
     """
-    Returns high-level RBAC statistics for administrative metrics.
-    Scope: Authenticated users (Admin gets full stats, others get summary).
+    Returns high-level RBAC statistics and live hospital operational telemetry.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -440,8 +649,9 @@ class AuthOverviewView(APIView):
         patients_count = User.objects.filter(role=UserRole.PATIENT).count()
         doctors_count = User.objects.filter(role=UserRole.DOCTOR).count()
         admins_count = User.objects.filter(role=UserRole.ADMIN).count()
+        pending_requests = DoctorAccountRequest.objects.filter(status=DoctorAccountRequest.STATUS_PENDING).count()
 
-        return Response({
+        overview_data = {
             "status": "operational",
             "active_user": {
                 "id": str(request.user.id),
@@ -454,5 +664,58 @@ class AuthOverviewView(APIView):
                 "patients": patients_count,
                 "doctors": doctors_count,
                 "administrators": admins_count,
+                "pending_doctor_requests": pending_requests,
             }
-        })
+        }
+
+        # Extend operational analytics if caller is ADMIN
+        if request.user.role == UserRole.ADMIN:
+            try:
+                from appointments.models import Appointment, LabTest, PrescriptionRefill, DoctorProfile, Department
+                today = timezone.localdate()
+                total_appts = Appointment.objects.count()
+                today_appts = Appointment.objects.filter(appointment_datetime__date=today).count()
+                completed_appts = Appointment.objects.filter(status="COMPLETED").count()
+                scheduled_appts = Appointment.objects.filter(status="SCHEDULED").count()
+                cancelled_appts = Appointment.objects.filter(status="CANCELLED").count()
+
+                total_labs = LabTest.objects.count()
+                critical_labs = LabTest.objects.filter(abnormal_flag="CRITICAL").count()
+                pending_refills = PrescriptionRefill.objects.filter(status="PENDING").count()
+
+                dept_counts = {}
+                for dept_choice in Department.choices:
+                    dept_key = dept_choice[0]
+                    dept_label = dept_choice[1]
+                    dept_counts[dept_key] = {
+                        "name": dept_label,
+                        "doctor_count": DoctorProfile.objects.filter(department=dept_key).count(),
+                        "appointment_count": Appointment.objects.filter(doctor__doctor_profile__department=dept_key).count(),
+                    }
+
+                recent_audit_count = AuditLog.objects.count()
+                active_broadcast = HospitalBroadcast.objects.filter(is_active=True).first()
+
+                overview_data["operations"] = {
+                    "appointments": {
+                        "total": total_appts,
+                        "today": today_appts,
+                        "completed": completed_appts,
+                        "scheduled": scheduled_appts,
+                        "cancelled": cancelled_appts,
+                    },
+                    "labs": {
+                        "total": total_labs,
+                        "critical": critical_labs,
+                    },
+                    "pharmacy": {
+                        "pending_refills": pending_refills,
+                    },
+                    "departments": dept_counts,
+                    "audit_logs_count": recent_audit_count,
+                    "active_broadcast": HospitalBroadcastSerializer(active_broadcast).data if active_broadcast else None,
+                }
+            except Exception as e:
+                logger.error(f"Error compiling admin operations: {e}")
+
+        return Response(overview_data)

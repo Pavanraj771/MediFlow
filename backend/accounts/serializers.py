@@ -1,12 +1,19 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import authenticate
-from .models import DoctorAccountRequest, User, UserRole
+from .models import AuditLog, DoctorAccountRequest, HospitalBroadcast, User, UserRole
 from django.contrib.auth.hashers import make_password
 
 
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.ReadOnlyField()
+    department = serializers.SerializerMethodField()
+    license_number = serializers.SerializerMethodField()
+    years_experience = serializers.SerializerMethodField()
+    consultation_fee = serializers.SerializerMethodField()
+    blood_group = serializers.SerializerMethodField()
+    critical_alert = serializers.SerializerMethodField()
+    emergency_contact_phone = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -21,8 +28,43 @@ class UserSerializer(serializers.ModelSerializer):
             "phone_number",
             "is_active",
             "created_at",
+            "department",
+            "license_number",
+            "years_experience",
+            "consultation_fee",
+            "blood_group",
+            "critical_alert",
+            "emergency_contact_phone",
         ]
-        read_only_fields = ["id", "email", "role", "is_active", "created_at"]
+        read_only_fields = ["id", "email", "role", "created_at"]
+
+    def get_department(self, obj):
+        doc = getattr(obj, "doctor_profile", None)
+        return doc.department if doc else None
+
+    def get_license_number(self, obj):
+        doc = getattr(obj, "doctor_profile", None)
+        return doc.license_number if doc else None
+
+    def get_years_experience(self, obj):
+        doc = getattr(obj, "doctor_profile", None)
+        return doc.years_experience if doc else None
+
+    def get_consultation_fee(self, obj):
+        doc = getattr(obj, "doctor_profile", None)
+        return str(doc.consultation_fee) if doc else None
+
+    def get_blood_group(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.blood_group if pat else None
+
+    def get_critical_alert(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.critical_alert if pat else None
+
+    def get_emergency_contact_phone(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.emergency_contact_phone if pat else None
 
     def validate_username(self, value):
         if value:
@@ -181,3 +223,39 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField(required=False, allow_blank=True)
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AuditLog
+        fields = [
+            "id",
+            "actor",
+            "actor_name",
+            "actor_role",
+            "action",
+            "details",
+            "severity",
+            "ip_address",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]
+
+
+class HospitalBroadcastSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.ReadOnlyField(source="created_by.full_name")
+
+    class Meta:
+        model = HospitalBroadcast
+        fields = [
+            "id",
+            "title",
+            "message",
+            "alert_level",
+            "is_active",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_by", "created_at", "updated_at"]

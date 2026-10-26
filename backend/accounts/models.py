@@ -117,3 +117,51 @@ class EmailOTP(models.Model):
     verified = models.BooleanField(default=False)
     attempts = models.PositiveSmallIntegerField(default=0)
     last_sent_at = models.DateTimeField(auto_now=True)
+
+
+class AuditLogSeverity(models.TextChoices):
+    INFO = "INFO", "Information"
+    WARNING = "WARNING", "Warning"
+    CRITICAL = "CRITICAL", "Critical Security Alert"
+
+
+class AuditLog(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    actor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="audit_actions")
+    actor_name = models.CharField(max_length=200, blank=True, default="")
+    actor_role = models.CharField(max_length=50, blank=True, default="")
+    action = models.CharField(max_length=100, db_index=True)
+    details = models.TextField(blank=True, default="")
+    severity = models.CharField(max_length=20, choices=AuditLogSeverity.choices, default=AuditLogSeverity.INFO, db_index=True)
+    ip_address = models.CharField(max_length=50, blank=True, default="127.0.0.1")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Audit Log"
+        verbose_name_plural = "Audit Logs"
+
+    def __str__(self):
+        return f"[{self.severity}] {self.action} by {self.actor_name} at {self.created_at}"
+
+
+class HospitalBroadcast(models.Model):
+    SEVERITY_CHOICES = [
+        ("INFO", "General Notice"),
+        ("WARNING", "Advisory Warning"),
+        ("EMERGENCY", "Code Emergency"),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="broadcasts")
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    alert_level = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="INFO")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.title} ({self.alert_level})"

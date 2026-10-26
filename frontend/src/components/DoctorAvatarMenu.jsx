@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Stethoscope, Calendar, LogOut, ShieldCheck, Activity } from 'lucide-react';
+import { Stethoscope, Calendar, LogOut, ShieldCheck, Activity, Users, CalendarCheck, UserRound, MessageSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const DoctorAvatarMenu = ({ size = 40, align = 'right' }) => {
@@ -83,9 +83,21 @@ const DoctorAvatarMenu = ({ size = 40, align = 'right' }) => {
             <Activity size={17} color="#10b981" />
             <span>Clinical Workstation</span>
           </Link>
-          <Link role="menuitem" to="/doctor" onClick={() => setIsOpen(false)}>
-            <Calendar size={17} color="#10b981" />
-            <span>Manage Schedule</span>
+          <Link role="menuitem" to="/doctor/messages" onClick={() => setIsOpen(false)}>
+            <MessageSquare size={17} color="#10b981" />
+            <span>Care Messages</span>
+          </Link>
+          <Link role="menuitem" to="/doctor/appointments" onClick={() => setIsOpen(false)}>
+            <CalendarCheck size={17} color="#10b981" />
+            <span>Appointments</span>
+          </Link>
+          <Link role="menuitem" to="/doctor/patients" onClick={() => setIsOpen(false)}>
+            <Users size={17} color="#10b981" />
+            <span>My Patients</span>
+          </Link>
+          <Link role="menuitem" to="/doctor/profile" onClick={() => setIsOpen(false)}>
+            <UserRound size={17} color="#10b981" />
+            <span>Doctor Profile</span>
           </Link>
           <div
             style={{

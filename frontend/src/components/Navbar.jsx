@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import PatientAvatarMenu from './PatientAvatarMenu';
 import DoctorAvatarMenu from './DoctorAvatarMenu';
+import AdminAvatarMenu from './AdminAvatarMenu';
 import {
   Activity,
   Shield,
@@ -153,8 +154,6 @@ export const Navbar = () => {
 
           {isAuthenticated ? (
             <>
-
-
               {/* User Persona Capsule */}
               <div style={{
                 display: 'flex',
@@ -194,29 +193,7 @@ export const Navbar = () => {
 
               {user?.role === 'PATIENT' && <PatientAvatarMenu size={40} />}
               {user?.role === 'DOCTOR' && <DoctorAvatarMenu size={40} />}
-
-              {/* Logout Button for roles without a dedicated avatar dropdown */}
-              {user?.role !== 'PATIENT' && user?.role !== 'DOCTOR' && (
-                <button
-                  onClick={handleLogout}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 14px',
-                    background: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(220, 38, 38, 0.08)',
-                    color: 'var(--color-danger)',
-                    border: isDark ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(220, 38, 38, 0.2)',
-                    borderRadius: 'var(--radius-md)',
-                    fontSize: '0.82rem',
-                    fontWeight: 600,
-                  }}
-                  title="Log out of session"
-                >
-                  <LogOut size={15} />
-                  <span>Sign Out</span>
-                </button>
-              )}
+              {user?.role === 'ADMIN' && <AdminAvatarMenu size={40} />}
             </>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

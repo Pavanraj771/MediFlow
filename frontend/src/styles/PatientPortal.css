@@ -506,6 +506,12 @@
   box-shadow: var(--shadow-md);
 }
 
+.patient-service-card__icon--blue {
+  color: var(--color-primary);
+  background: rgba(14, 165, 233, 0.1);
+  border-color: rgba(14, 165, 233, 0.16);
+}
+
 .patient-service-card__icon--green {
   color: var(--color-success);
   background: rgba(16, 185, 129, 0.1);
@@ -522,6 +528,12 @@
   color: #d97706;
   background: rgba(245, 158, 11, 0.1);
   border-color: rgba(245, 158, 11, 0.18);
+}
+
+.patient-service-card__icon--teal {
+  color: var(--color-teal);
+  background: rgba(20, 184, 166, 0.1);
+  border-color: rgba(20, 184, 166, 0.16);
 }
 
 .patient-service-card__tag {

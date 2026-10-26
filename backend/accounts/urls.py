@@ -2,18 +2,22 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
+    AuditLogListView,
     AuthOverviewView,
     CustomLoginView,
-    GoogleLoginView,
+    DoctorAdminUpdateView,
     DoctorAccountRequestDecisionView,
     DoctorAccountRequestListView,
+    GoogleLoginView,
+    HospitalBroadcastViewSet,
     LogoutView,
     RegisterView,
     SendEmailOTPView,
-    VerifyEmailOTPView,
-    UserListView,
     UserDeleteView,
+    UserListView,
     UserProfileView,
+    UserStatusToggleView,
+    VerifyEmailOTPView,
 )
 
 app_name = "accounts"
@@ -29,7 +33,12 @@ urlpatterns = [
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("users/", UserListView.as_view(), name="user_list"),
     path("users/<uuid:pk>/", UserDeleteView.as_view(), name="user_delete"),
+    path("users/<uuid:pk>/status/", UserStatusToggleView.as_view(), name="user_status_toggle"),
+    path("doctors/<uuid:pk>/", DoctorAdminUpdateView.as_view(), name="doctor_admin_update"),
     path("doctor-requests/", DoctorAccountRequestListView.as_view(), name="doctor_requests"),
     path("doctor-requests/<uuid:pk>/decision/", DoctorAccountRequestDecisionView.as_view(), name="doctor_request_decision"),
+    path("audit-logs/", AuditLogListView.as_view(), name="audit_logs"),
+    path("broadcasts/", HospitalBroadcastViewSet.as_view({"get": "list", "post": "create"}), name="broadcasts_list"),
+    path("broadcasts/<uuid:pk>/", HospitalBroadcastViewSet.as_view({"get": "retrieve", "patch": "partial_update", "delete": "destroy"}), name="broadcasts_detail"),
     path("overview/", AuthOverviewView.as_view(), name="auth_overview"),
 ]

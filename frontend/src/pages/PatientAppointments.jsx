@@ -1,20 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Calendar, Clock, UserRound, X, Plus, CalendarCheck } from 'lucide-react';
 import PatientAvatarMenu from '../components/PatientAvatarMenu';
 import { appointmentsService } from '../services/api';
 import '../styles/PatientPortal.css';
 
 const PatientAppointments = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const paramDoctorId = searchParams.get('doctorId');
+  const paramDept = searchParams.get('department');
+  const paramDoctorName = searchParams.get('doctorName');
+  const isFixedDoctor = Boolean(paramDoctorId && paramDept);
+
   const [appointments, setAppointments] = useState([]);
   const [doctors, setDoctors] = useState([]);
-  const [isBooking, setIsBooking] = useState(false);
+  const [isBooking, setIsBooking] = useState(Boolean(paramDept));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
   // Booking Form State
-  const [selectedDept, setSelectedDept] = useState('');
-  const [selectedDoctor, setSelectedDoctor] = useState('');
+  const [selectedDept, setSelectedDept] = useState(paramDept || '');
+  const [selectedDoctor, setSelectedDoctor] = useState(paramDoctorId || '');
   const [selectedDate, setSelectedDate] = useState('');
   const [availableSlots, setAvailableSlots] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState('');
@@ -25,6 +31,19 @@ const PatientAppointments = () => {
   useEffect(() => {
     fetchAppointments();
   }, []);
+
+  useEffect(() => {
+    if (paramDept) {
+      setSelectedDept(paramDept);
+      setIsBooking(true);
+      appointmentsService.getDoctors({ department: paramDept }).then(docs => {
+        setDoctors(docs);
+        if (paramDoctorId) {
+          setSelectedDoctor(paramDoctorId);
+        }
+      }).catch(console.error);
+    }
+  }, [paramDoctorId, paramDept]);
 
   const fetchAppointments = async () => {
     try {
@@ -115,7 +134,20 @@ const PatientAppointments = () => {
     }
   };
 
+  const clearFixedDoctor = () => {
+    setSearchParams({});
+    setSelectedDept('');
+    setSelectedDoctor('');
+    setSelectedDate('');
+    setAvailableSlots([]);
+    setSelectedSlot('');
+    setDoctors([]);
+  };
+
   const resetForm = () => {
+    if (isFixedDoctor) {
+      setSearchParams({});
+    }
     setSelectedDept('');
     setSelectedDoctor('');
     setSelectedDate('');
@@ -206,37 +238,93 @@ const PatientAppointments = () => {
 
           <form id="booking-form" onSubmit={handleBook} style={{ marginTop: '20px' }}>
             <div className="patient-profile-grid">
-              <label className="patient-form-field">
-                <span>Department</span>
-                <select required value={selectedDept} onChange={handleDeptChange} disabled={loading} style={{
-                  background: 'var(--surface-input)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-main)',
-                  padding: '0 16px',
-                  borderRadius: '12px',
-                  height: '46px',
-                  outline: 'none'
+              {isFixedDoctor ? (
+                <div style={{
+                  gridColumn: '1 / -1',
+                  padding: '16px 20px',
+                  borderRadius: '14px',
+                  background: 'rgba(14, 165, 233, 0.08)',
+                  border: '1px solid rgba(14, 165, 233, 0.25)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                  marginBottom: '10px',
                 }}>
-                  <option value="" style={{ background: 'var(--bg-surface)', color: 'var(--text-main)' }}>Select Department</option>
-                  {departments.map(d => <option key={d} value={d} style={{ background: 'var(--bg-surface)', color: 'var(--text-main)' }}>{d.replace('_', ' ')}</option>)}
-                </select>
-              </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{
+                      width: 44, height: 44, borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+                      boxShadow: '0 0 15px rgba(14, 165, 233, 0.3)',
+                    }}>
+                      <UserRound size={22} />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#0ea5e9', letterSpacing: '0.08em' }}>
+                        FIXED PHYSICIAN APPOINTMENT
+                      </span>
+                      <h3 style={{ margin: '2px 0 0', fontSize: '1.05rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                        Dr. {paramDoctorName || (doctors.find(d => String(d.user?.id) === String(paramDoctorId))?.user?.full_name || 'Selected Doctor')}
+                      </h3>
+                      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                        Specialty: <strong style={{ color: 'var(--color-primary)' }}>{paramDept.replace('_', ' ')}</strong>
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearFixedDoctor}
+                    style={{
+                      background: 'var(--surface-hover)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '8px',
+                      padding: '8px 14px',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: 'var(--text-main)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Choose Different Doctor
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <label className="patient-form-field">
+                    <span>Department</span>
+                    <select required value={selectedDept} onChange={handleDeptChange} disabled={loading} style={{
+                      background: 'var(--surface-input)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-main)',
+                      padding: '0 16px',
+                      borderRadius: '12px',
+                      height: '46px',
+                      outline: 'none'
+                    }}>
+                      <option value="" style={{ background: 'var(--bg-surface)', color: 'var(--text-main)' }}>Select Department</option>
+                      {departments.map(d => <option key={d} value={d} style={{ background: 'var(--bg-surface)', color: 'var(--text-main)' }}>{d.replace('_', ' ')}</option>)}
+                    </select>
+                  </label>
 
-              <label className="patient-form-field">
-                <span>Doctor</span>
-                <select required value={selectedDoctor} onChange={handleDoctorChange} disabled={!selectedDept || loading} style={{
-                  background: 'var(--surface-input)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-main)',
-                  padding: '0 16px',
-                  borderRadius: '12px',
-                  height: '46px',
-                  outline: 'none'
-                }}>
-                  <option value="" style={{ background: 'var(--bg-surface)', color: 'var(--text-main)' }}>Select Doctor</option>
-                  {doctors.map(d => <option key={d.user.id} value={d.user.id} style={{ background: 'var(--bg-surface)', color: 'var(--text-main)' }}>Dr. {d.user.full_name}</option>)}
-                </select>
-              </label>
+                  <label className="patient-form-field">
+                    <span>Doctor</span>
+                    <select required value={selectedDoctor} onChange={handleDoctorChange} disabled={!selectedDept || loading} style={{
+                      background: 'var(--surface-input)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-main)',
+                      padding: '0 16px',
+                      borderRadius: '12px',
+                      height: '46px',
+                      outline: 'none'
+                    }}>
+                      <option value="" style={{ background: 'var(--bg-surface)', color: 'var(--text-main)' }}>Select Doctor</option>
+                      {doctors.map(d => <option key={d.user.id} value={d.user.id} style={{ background: 'var(--bg-surface)', color: 'var(--text-main)' }}>Dr. {d.user.full_name}</option>)}
+                    </select>
+                  </label>
+                </>
+              )}
 
               <label className="patient-form-field">
                 <span>Date</span>
