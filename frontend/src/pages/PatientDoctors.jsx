@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft, Stethoscope, Search, CalendarDays, DollarSign,
-  Star, Filter, Users, AlertCircle,
+  Star, Filter, Users, AlertCircle, MessageSquare
 } from 'lucide-react';
 import PatientAvatarMenu from '../components/PatientAvatarMenu';
+import DoctorReviewsListModal from '../components/DoctorReviewsListModal';
 import { appointmentsService } from '../services/api';
 import '../styles/PatientPortal.css';
 
@@ -21,10 +22,12 @@ const DEPT_COLORS = {
   PEDIATRICS: { bg: 'rgba(14,165,233,0.1)', color: '#0ea5e9' },
 };
 
-const DoctorCard = ({ doctor }) => {
+const DoctorCard = ({ doctor, onOpenReviews }) => {
   const dept = doctor.department;
   const dc = DEPT_COLORS[dept] || { bg: 'rgba(99,102,241,0.1)', color: '#6366f1' };
   const initials = (doctor.user?.full_name || 'Dr').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+  const avgRating = doctor.average_rating;
+  const reviewCount = doctor.review_count || 0;
 
   return (
     <div style={{
@@ -51,13 +54,38 @@ const DoctorCard = ({ doctor }) => {
           <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--heading-color)' }}>
             Dr. {doctor.user?.full_name}
           </h3>
-          <span style={{
-            display: 'inline-block', marginTop: '4px',
-            padding: '3px 10px', borderRadius: '999px', fontSize: '0.73rem', fontWeight: 700,
-            background: dc.bg, color: dc.color,
-          }}>
-            {DEPT_LABELS[dept] || dept}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+            <span style={{
+              display: 'inline-block',
+              padding: '3px 10px', borderRadius: '999px', fontSize: '0.73rem', fontWeight: 700,
+              background: dc.bg, color: dc.color,
+            }}>
+              {DEPT_LABELS[dept] || dept}
+            </span>
+
+            {/* Doctor Average Rating Badge */}
+            <button
+              type="button"
+              onClick={() => onOpenReviews(doctor)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                background: avgRating ? 'rgba(245, 158, 11, 0.12)' : 'rgba(148, 163, 184, 0.1)',
+                color: avgRating ? '#f59e0b' : 'var(--text-muted)',
+                border: avgRating ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(148, 163, 184, 0.2)',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+              title="Click to view all patient reviews and ratings"
+            >
+              <Star size={11} fill={avgRating ? '#f59e0b' : 'transparent'} color={avgRating ? '#f59e0b' : 'currentColor'} />
+              <span>{avgRating ? `${avgRating.toFixed(1)} ★ (${reviewCount})` : 'New'}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -83,18 +111,38 @@ const DoctorCard = ({ doctor }) => {
         )}
       </div>
 
-      <Link
-        to={`/patient/appointments?doctorId=${doctor.user?.id}&department=${doctor.department}&doctorName=${encodeURIComponent(doctor.user?.full_name || '')}`}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-          padding: '10px 16px', borderRadius: '10px', fontSize: '0.87rem', fontWeight: 700,
-          background: dc.bg, color: dc.color,
-          border: `1px solid ${dc.color}40`, textDecoration: 'none',
-          transition: 'background 0.2s',
-        }}
-      >
-        <CalendarDays size={15} /> Book Appointment
-      </Link>
+      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
+        <button
+          type="button"
+          onClick={() => onOpenReviews(doctor)}
+          style={{
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            padding: '10px 12px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 600,
+            background: 'var(--bg-surface)', color: 'var(--text-main)',
+            border: '1px solid var(--border-subtle)', cursor: 'pointer',
+            transition: 'background 0.2s',
+          }}
+          title="Read all patient reviews for this doctor"
+        >
+          <MessageSquare size={14} color="#f59e0b" />
+          <span>Reviews ({reviewCount})</span>
+        </button>
+
+        <Link
+          to={`/patient/appointments?doctorId=${doctor.user?.id}&department=${doctor.department}&doctorName=${encodeURIComponent(doctor.user?.full_name || '')}`}
+          style={{
+            flex: 1.3,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            padding: '10px 12px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 700,
+            background: dc.bg, color: dc.color,
+            border: `1px solid ${dc.color}40`, textDecoration: 'none',
+            transition: 'background 0.2s',
+          }}
+        >
+          <CalendarDays size={14} /> Book
+        </Link>
+      </div>
     </div>
   );
 };
@@ -104,6 +152,7 @@ const PatientDoctors = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('ALL');
+  const [selectedDoctorForReviews, setSelectedDoctorForReviews] = useState(null);
 
   useEffect(() => {
     appointmentsService.getDoctors().then(setDoctors).catch(console.error).finally(() => setLoading(false));
@@ -183,8 +232,21 @@ const PatientDoctors = () => {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '18px' }}>
-        {filtered.map(d => <DoctorCard key={d.id} doctor={d} />)}
+        {filtered.map(d => (
+          <DoctorCard
+            key={d.id}
+            doctor={d}
+            onOpenReviews={setSelectedDoctorForReviews}
+          />
+        ))}
       </div>
+
+      {selectedDoctorForReviews && (
+        <DoctorReviewsListModal
+          doctor={selectedDoctorForReviews}
+          onClose={() => setSelectedDoctorForReviews(null)}
+        />
+      )}
     </div>
   );
 };

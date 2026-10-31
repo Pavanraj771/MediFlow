@@ -4,6 +4,7 @@ import {
   Stethoscope, Activity, Calendar, CalendarDays, Clock, ShieldCheck,
   Users, ClipboardList, HeartPulse, Plus, CheckCircle2, XCircle,
   CalendarCheck, ChevronRight, UserRound, AlertCircle, MessageSquare, RotateCw,
+  Star,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { appointmentsService } from '../services/api';
@@ -17,23 +18,46 @@ const DoctorDashboard = () => {
   const [appointments, setAppointments] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [refills, setRefills] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [doctorProfile, setDoctorProfile] = useState(null);
   const [loadingAppts, setLoadingAppts] = useState(true);
   const [loadingSchedules, setLoadingSchedules] = useState(true);
   const [loadingRefills, setLoadingRefills] = useState(false);
+  const [loadingReviews, setLoadingReviews] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [scheduleError, setScheduleError] = useState('');
   const [scheduleForm, setScheduleForm] = useState({
-    day_of_week: '', start_time: '09:00', end_time: '17:00', slot_duration_minutes: 30,
+    date: new Date().toISOString().split('T')[0],
+    start_time: '09:00',
+    end_time: '17:00',
+    slot_duration_minutes: 30,
   });
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleView, setScheduleView] = useState('REMAINING_WEEK'); // 'REMAINING_WEEK' | 'ALL'
 
   useEffect(() => {
     fetchAppointments();
     fetchSchedules();
     fetchRefills();
-  }, []);
+    fetchDoctorReviews();
+  }, [user]);
+
+  const fetchDoctorReviews = async () => {
+    try {
+      setLoadingReviews(true);
+      const prof = await appointmentsService.getDoctorProfile();
+      setDoctorProfile(prof);
+      const revData = await appointmentsService.getDoctorReviews(user?.id || prof?.user?.id || prof?.id);
+      const list = Array.isArray(revData) ? revData : revData.results || [];
+      setReviews(list);
+    } catch (err) {
+      console.error('Failed to fetch doctor reviews:', err);
+    } finally {
+      setLoadingReviews(false);
+    }
+  };
 
   const fetchAppointments = async () => {
     try {
@@ -78,9 +102,20 @@ const DoctorDashboard = () => {
     setScheduleError('');
     setSavingSchedule(true);
     try {
-      await appointmentsService.createSchedule(scheduleForm);
+      const [y, m, d] = scheduleForm.date.split('-').map(Number);
+      const dateObj = new Date(y, m - 1, d);
+      const day_of_week = (dateObj.getDay() + 6) % 7;
+      await appointmentsService.createSchedule({
+        ...scheduleForm,
+        day_of_week,
+      });
       setShowScheduleForm(false);
-      setScheduleForm({ day_of_week: '', start_time: '09:00', end_time: '17:00', slot_duration_minutes: 30 });
+      setScheduleForm({
+        date: new Date().toISOString().split('T')[0],
+        start_time: '09:00',
+        end_time: '17:00',
+        slot_duration_minutes: 30,
+      });
       fetchSchedules();
     } catch (err) {
       const msg = err.response?.data?.detail ||
@@ -93,16 +128,105 @@ const DoctorDashboard = () => {
     }
   };
 
+  const isScheduleFinished = (s) => {
+    if (s.date) return s.date < todayStr;
+    if (s.effectiveDate) return s.effectiveDate < todayStr;
+    return false;
+  };
+
   const handleDeleteSchedule = async (id) => {
-    try { await appointmentsService.deleteSchedule(id); fetchSchedules(); } catch (err) { console.error(err); }
+    const sched = schedules.find(s => s.id === id);
+    if (sched && isScheduleFinished(sched)) {
+      alert("Cannot remove schedules of dates that are already finished.");
+      return;
+    }
+    if (!window.confirm("Are you sure you want to remove this shift block?")) return;
+    try {
+      await appointmentsService.deleteSchedule(id);
+      fetchSchedules();
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.detail || err.response?.data?.[0] || 'Failed to remove schedule.');
+    }
   };
 
   const formatDateTime = (iso) => new Date(iso).toLocaleString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
   });
 
-  const upcomingAppointments = appointments.filter(a => a.status === 'SCHEDULED');
-  const todayStr = new Date().toISOString().split('T')[0];
+  const upcomingAppointments = appointments
+    .filter(a => a.status === 'SCHEDULED')
+    .sort((a, b) => new Date(a.appointment_datetime).getTime() - new Date(b.appointment_datetime).getTime());
+  const nextUpcomingAppointments = upcomingAppointments.slice(0, 5);
+  const now = new Date();
+  const todayYear = now.getFullYear();
+  const todayMonth = String(now.getMonth() + 1).padStart(2, '0');
+  const todayDay = String(now.getDate()).padStart(2, '0');
+  const todayStr = `${todayYear}-${todayMonth}-${todayDay}`;
+
+  const currentDayOfWeek = (now.getDay() + 6) % 7; // Mon=0, ..., Sun=6
+  const daysUntilSunday = 6 - currentDayOfWeek;
+  const endOfWeek = new Date(now);
+  endOfWeek.setDate(now.getDate() + daysUntilSunday);
+  const endOfWeekStr = `${endOfWeek.getFullYear()}-${String(endOfWeek.getMonth() + 1).padStart(2, '0')}-${String(endOfWeek.getDate()).padStart(2, '0')}`;
+
+  const tomorrowObj = new Date(now);
+  tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+  const tomorrowStr = `${tomorrowObj.getFullYear()}-${String(tomorrowObj.getMonth() + 1).padStart(2, '0')}-${String(tomorrowObj.getDate()).padStart(2, '0')}`;
+
+  // Process and sort schedules
+  const remainingWeekSchedules = schedules
+    .map(s => {
+      let effectiveDate = s.date;
+      if (!effectiveDate && s.day_of_week !== undefined && s.day_of_week !== null) {
+        const offset = s.day_of_week - currentDayOfWeek;
+        const targetD = new Date(now);
+        targetD.setDate(now.getDate() + offset);
+        effectiveDate = `${targetD.getFullYear()}-${String(targetD.getMonth() + 1).padStart(2, '0')}-${String(targetD.getDate()).padStart(2, '0')}`;
+      }
+      return { ...s, effectiveDate };
+    })
+    .filter(s => {
+      if (!s.effectiveDate) return false;
+      return s.effectiveDate >= todayStr && s.effectiveDate <= endOfWeekStr;
+    })
+    .sort((a, b) => {
+      if (a.effectiveDate !== b.effectiveDate) {
+        return a.effectiveDate.localeCompare(b.effectiveDate);
+      }
+      return (a.start_time || '').localeCompare(b.start_time || '');
+    });
+
+  const allSortedSchedules = [...schedules]
+    .map(s => {
+      let effectiveDate = s.date;
+      if (!effectiveDate && s.day_of_week !== undefined && s.day_of_week !== null) {
+        const offset = s.day_of_week - currentDayOfWeek;
+        const targetD = new Date(now);
+        targetD.setDate(now.getDate() + offset);
+        effectiveDate = `${targetD.getFullYear()}-${String(targetD.getMonth() + 1).padStart(2, '0')}-${String(targetD.getDate()).padStart(2, '0')}`;
+      }
+      return { ...s, effectiveDate };
+    })
+    .sort((a, b) => {
+      if (a.effectiveDate && b.effectiveDate && a.effectiveDate !== b.effectiveDate) {
+        return a.effectiveDate.localeCompare(b.effectiveDate);
+      }
+      return (a.start_time || '').localeCompare(b.start_time || '');
+    });
+
+  const displayedSchedules = scheduleView === 'REMAINING_WEEK' ? remainingWeekSchedules : allSortedSchedules;
+
+  const formatScheduleHeader = (s) => {
+    const targetDate = s.date || s.effectiveDate;
+    if (targetDate) {
+      const [y, m, d] = targetDate.split('-').map(Number);
+      const dateObj = new Date(y, m - 1, d);
+      return dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    return DAYS[s.day_of_week] || 'Shift Block';
+  };
+
   const todayAppts = upcomingAppointments.filter(a => a.appointment_datetime?.startsWith(todayStr));
   const pendingRefills = refills.filter(r => r.status === 'PENDING');
 
@@ -116,6 +240,7 @@ const DoctorDashboard = () => {
     { id: 'overview', label: 'Appointments', icon: ClipboardList },
     { id: 'refills', label: `Refills (${pendingRefills.length})`, icon: RotateCw },
     { id: 'schedule', label: 'My Schedule', icon: Calendar },
+    { id: 'reviews', label: `Patient Reviews (${reviews.length})`, icon: Star },
   ];
 
   const QUICK_LINKS = [
@@ -189,27 +314,110 @@ const DoctorDashboard = () => {
       </div>
 
       {/* Stat Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginTop: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginTop: '20px' }}>
         {[
-          { icon: CalendarDays, label: 'Total Appointments', value: appointments.length, color: '#0ea5e9' },
-          { icon: CalendarCheck, label: 'Upcoming', value: upcomingAppointments.length, color: '#10b981' },
-          { icon: Users, label: "Today's Patients", value: todayAppts.length, color: '#f59e0b' },
-          { icon: Clock, label: 'Schedule Slots', value: schedules.length, color: '#8b5cf6' },
-        ].map(({ icon: Icon, label, value, color }) => (
-          <div key={label} style={{
-            padding: '20px 24px', background: 'var(--bg-glass-card)',
-            border: '1px solid var(--border-subtle)', borderRadius: '16px',
-            display: 'flex', alignItems: 'center', gap: '16px',
-          }}>
-            <div style={{ width: 44, height: 44, borderRadius: '12px', background: `${color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon size={20} color={color} />
+          {
+            icon: CalendarDays,
+            label: 'Total Appointments',
+            value: appointments.length,
+            color: '#0ea5e9',
+            to: '/doctor/appointments',
+            sub: 'View all appointments'
+          },
+          {
+            icon: CalendarCheck,
+            label: 'Upcoming',
+            value: upcomingAppointments.length,
+            color: '#10b981',
+            to: '/doctor/appointments?status=SCHEDULED',
+            sub: 'View upcoming visits'
+          },
+          {
+            icon: Users,
+            label: "Today's Patients",
+            value: todayAppts.length,
+            color: '#f59e0b',
+            to: '/doctor/patients?filter=today',
+            sub: "View today's patient visits"
+          },
+          {
+            icon: Clock,
+            label: 'Schedule Slots',
+            value: schedules.length,
+            color: '#8b5cf6',
+            onClick: () => {
+              setActiveTab('schedule');
+              setTimeout(() => {
+                const el = document.getElementById('doctor-schedule-tab');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }, 50);
+            },
+            sub: 'Configure working hours'
+          },
+          {
+            icon: Star,
+            label: 'Patient Rating',
+            value: doctorProfile?.average_rating
+              ? `${doctorProfile.average_rating.toFixed(1)} ★`
+              : (reviews.length > 0 ? `${(reviews.reduce((a, b) => a + b.rating, 0) / reviews.length).toFixed(1)} ★` : 'New'),
+            color: '#f59e0b',
+            onClick: () => {
+              setActiveTab('reviews');
+              setTimeout(() => {
+                const el = document.getElementById('doctor-reviews-tab');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }, 50);
+            },
+            sub: `${reviews.length} patient review${reviews.length === 1 ? '' : 's'}`
+          },
+        ].map(({ icon: Icon, label, value, color, to, onClick, sub }) => {
+          const cardContent = (
+            <div
+              style={{
+                padding: '18px 20px', background: 'var(--bg-glass-card)',
+                border: '1px solid var(--border-subtle)', borderRadius: '16px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                transition: 'transform 0.2s, box-shadow 0.2s, border-color 0.2s',
+                cursor: 'pointer', height: '100%',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'translateY(-3px)';
+                e.currentTarget.style.boxShadow = '0 10px 25px rgba(0,0,0,0.1)';
+                e.currentTarget.style.borderColor = color;
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = '';
+                e.currentTarget.style.boxShadow = '';
+                e.currentTarget.style.borderColor = 'var(--border-subtle)';
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{ width: 44, height: 44, borderRadius: '12px', background: `${color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon size={20} color={color} />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>{label}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '1.6rem', fontWeight: 800, color: 'var(--heading-color)' }}>{value}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: color, fontWeight: 700 }}>{sub} →</p>
+                </div>
+              </div>
+              <ChevronRight size={16} color="var(--text-muted)" style={{ opacity: 0.6 }} />
             </div>
-            <div>
-              <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>{label}</p>
-              <p style={{ margin: 0, fontSize: '1.6rem', fontWeight: 800, color: 'var(--heading-color)' }}>{value}</p>
+          );
+
+          if (to) {
+            return (
+              <Link key={label} to={to} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
+                {cardContent}
+              </Link>
+            );
+          }
+          return (
+            <div key={label} onClick={onClick} role="button" tabIndex={0} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
+              {cardContent}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Tab Navigation */}
@@ -232,8 +440,8 @@ const DoctorDashboard = () => {
         <div className="patient-profile-card" style={{ marginTop: '20px' }}>
           <div className="patient-profile-card__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <h2>Recent Appointments</h2>
-              <p>Showing your latest patient consultations.</p>
+              <h2>Upcoming Appointments</h2>
+              <p>Displaying your next 5 upcoming scheduled patient visits.</p>
             </div>
             <Link to="/doctor/appointments" style={{
               display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px',
@@ -245,10 +453,14 @@ const DoctorDashboard = () => {
           </div>
           <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {loadingAppts && <p style={{ color: 'var(--text-muted)' }}>Loading appointments...</p>}
-            {!loadingAppts && appointments.length === 0 && (
-              <p style={{ color: 'var(--text-muted)' }}>No appointments yet. Patients will book once you have a schedule configured.</p>
+            {!loadingAppts && nextUpcomingAppointments.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '35px 20px', color: 'var(--text-muted)' }}>
+                <CalendarCheck size={36} style={{ opacity: 0.3, marginBottom: '8px' }} />
+                <p style={{ margin: 0 }}>No upcoming appointments scheduled.</p>
+                <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-dim)' }}>New patient bookings will appear here.</p>
+              </div>
             )}
-            {appointments.slice(0, 5).map(apt => (
+            {nextUpcomingAppointments.map(apt => (
               <div key={apt.id} style={{
                 padding: '16px 18px', borderRadius: '12px',
                 background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)',
@@ -267,15 +479,19 @@ const DoctorDashboard = () => {
                     <p style={{ margin: '2px 0 0', color: 'var(--text-muted)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <CalendarCheck size={12} /> {formatDateTime(apt.appointment_datetime)}
                     </p>
+                    {apt.reason_for_visit && (
+                      <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+                        {apt.reason_for_visit}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{
                     padding: '4px 12px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 700,
-                    background: apt.status === 'SCHEDULED' ? 'rgba(16,185,129,0.15)' : apt.status === 'COMPLETED' ? 'rgba(99,102,241,0.15)' : 'rgba(100,100,100,0.15)',
-                    color: apt.status === 'SCHEDULED' ? '#10b981' : apt.status === 'COMPLETED' ? '#6366f1' : 'var(--text-muted)',
+                    background: 'rgba(14,165,233,0.15)', color: '#0ea5e9', border: '1px solid rgba(14,165,233,0.25)',
                   }}>
-                    {apt.status}
+                    Upcoming
                   </span>
                   <Link to={`/doctor/appointments/${apt.id}/consult`} style={{
                     display: 'flex', alignItems: 'center', gap: '4px', padding: '5px 12px', borderRadius: '7px',
@@ -287,6 +503,83 @@ const DoctorDashboard = () => {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Recent Reviews Card on Overview */}
+          <div className="patient-profile-card" style={{ marginTop: '20px' }}>
+            <div className="patient-profile-card__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h2>Recent Patient Reviews</h2>
+                <p>Latest feedback and star ratings submitted by your patients.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('reviews');
+                  setTimeout(() => {
+                    const el = document.getElementById('doctor-reviews-tab');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }, 50);
+                }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px',
+                  fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
+                  background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)',
+                }}
+              >
+                <Star size={14} fill="#f59e0b" color="#f59e0b" />
+                View All Reviews ({reviews.length}) <ChevronRight size={14} />
+              </button>
+            </div>
+
+            {loadingReviews ? (
+              <p style={{ color: 'var(--text-muted)', padding: '20px 0' }}>Loading reviews...</p>
+            ) : reviews.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-muted)' }}>
+                <Star size={32} style={{ opacity: 0.25, margin: '0 auto 8px' }} />
+                <p style={{ margin: 0, fontSize: '0.88rem' }}>No reviews received yet.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
+                {reviews.slice(0, 3).map((rev) => (
+                  <div
+                    key={rev.id}
+                    style={{
+                      padding: '14px 16px', borderRadius: '12px',
+                      background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)',
+                      display: 'flex', flexDirection: 'column', gap: '6px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                        {rev.patient_name || 'Verified Patient'}
+                      </strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            size={14}
+                            fill={s <= rev.rating ? '#f59e0b' : 'transparent'}
+                            color={s <= rev.rating ? '#f59e0b' : '#cbd5e1'}
+                          />
+                        ))}
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f59e0b', marginLeft: '4px' }}>
+                          {rev.rating}/5
+                        </span>
+                      </div>
+                    </div>
+                    {rev.comment && (
+                      <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--text-main)', fontStyle: 'italic' }}>
+                        "{rev.comment}"
+                      </p>
+                    )}
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      {rev.created_at ? new Date(rev.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -398,16 +691,44 @@ const DoctorDashboard = () => {
 
       {/* Schedule Tab */}
       {activeTab === 'schedule' && (
-        <div style={{ marginTop: '20px' }}>
+        <div id="doctor-schedule-tab" style={{ marginTop: '20px' }}>
           <div className="patient-profile-card">
-            <div className="patient-profile-card__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div className="patient-profile-card__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h2>My Weekly Schedule</h2>
                 <p>Configure multiple shift blocks per day with customized slot durations (15m, 30m, 45m). Blocks on the same day cannot overlap.</p>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '12px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleView('REMAINING_WEEK')}
+                    style={{
+                      padding: '5px 12px', borderRadius: '999px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+                      border: scheduleView === 'REMAINING_WEEK' ? '1px solid #10b981' : '1px solid var(--border-subtle)',
+                      background: scheduleView === 'REMAINING_WEEK' ? 'rgba(16,185,129,0.15)' : 'transparent',
+                      color: scheduleView === 'REMAINING_WEEK' ? '#10b981' : 'var(--text-muted)',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    Remaining Days This Week ({remainingWeekSchedules.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleView('ALL')}
+                    style={{
+                      padding: '5px 12px', borderRadius: '999px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+                      border: scheduleView === 'ALL' ? '1px solid #10b981' : '1px solid var(--border-subtle)',
+                      background: scheduleView === 'ALL' ? 'rgba(16,185,129,0.15)' : 'transparent',
+                      color: scheduleView === 'ALL' ? '#10b981' : 'var(--text-muted)',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    All Schedules ({schedules.length})
+                  </button>
+                </div>
               </div>
               <button className="patient-primary-button" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
                 onClick={() => { setShowScheduleForm(!showScheduleForm); setScheduleError(''); }}>
-                <Plus size={16} /> Add Slot Block
+                <Plus size={16} /> Add Slot
               </button>
             </div>
 
@@ -418,7 +739,7 @@ const DoctorDashboard = () => {
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-doctor)', fontSize: '0.85rem' }}>NEW SCHEDULE SHIFT BLOCK</p>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Non-overlapping shifts allowed on same day</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Non-overlapping shifts allowed on same date</span>
                 </div>
 
                 {scheduleError && (
@@ -435,11 +756,15 @@ const DoctorDashboard = () => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px' }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
-                    Day of Week
-                    <select required value={scheduleForm.day_of_week} onChange={e => setScheduleForm({ ...scheduleForm, day_of_week: e.target.value })} style={inputStyle}>
-                      <option value="" disabled style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)' }}>Select day</option>
-                      {DAYS.map((d, i) => <option key={i} value={i} style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)' }}>{d}</option>)}
-                    </select>
+                    Date
+                    <input
+                      type="date"
+                      required
+                      min={todayStr}
+                      value={scheduleForm.date}
+                      onChange={e => setScheduleForm({ ...scheduleForm, date: e.target.value })}
+                      style={inputStyle}
+                    />
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.82rem', fontWeight: 600 }}>
                     Start Time
@@ -466,14 +791,21 @@ const DoctorDashboard = () => {
             )}
 
             <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {loadingSchedules && <p style={{ color: 'var(--text-muted)' }}>Loading...</p>}
-              {!loadingSchedules && schedules.length === 0 && (
+              {loadingSchedules && <p style={{ color: 'var(--text-muted)' }}>Loading schedules...</p>}
+              {!loadingSchedules && displayedSchedules.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
                   <Calendar size={40} style={{ opacity: 0.3, marginBottom: '12px' }} />
-                  <p>No schedule configured yet. Add your working days above.</p>
+                  <p>
+                    {scheduleView === 'REMAINING_WEEK'
+                      ? 'No schedule configured for the remaining days of this week.'
+                      : 'No schedule configured yet.'}
+                  </p>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px' }}>
+                    Click "Add Slot" above to set up your availability.
+                  </p>
                 </div>
               )}
-              {schedules.map(s => (
+              {displayedSchedules.map(s => (
                 <div key={s.id} style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   padding: '16px 20px', borderRadius: '12px',
@@ -484,8 +816,24 @@ const DoctorDashboard = () => {
                       <CalendarDays size={18} color="var(--color-doctor)" />
                     </div>
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>{DAYS[s.day_of_week]}</h3>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>{formatScheduleHeader(s)}</h3>
+                        {s.effectiveDate === todayStr && (
+                          <span style={{
+                            padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                            background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)',
+                          }}>
+                            Today
+                          </span>
+                        )}
+                        {s.effectiveDate === tomorrowStr && (
+                          <span style={{
+                            padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                            background: 'rgba(14,165,233,0.15)', color: '#0ea5e9', border: '1px solid rgba(14,165,233,0.3)',
+                          }}>
+                            Tomorrow
+                          </span>
+                        )}
                         <span style={{
                           padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
                           background: 'rgba(99,102,241,0.12)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.25)',
@@ -504,10 +852,23 @@ const DoctorDashboard = () => {
                       background: s.is_active ? 'rgba(16,185,129,0.15)' : 'rgba(100,100,100,0.15)',
                       color: s.is_active ? '#10b981' : 'var(--text-muted)',
                     }}>{s.is_active ? 'Active' : 'Inactive'}</span>
-                    <button onClick={() => handleDeleteSchedule(s.id)} className="patient-secondary-button"
-                      style={{ color: 'var(--color-danger)', borderColor: 'rgba(239,68,68,0.3)', padding: '6px 12px', fontSize: '0.8rem' }}>
-                      <XCircle size={14} /> Remove
-                    </button>
+                    {isScheduleFinished(s) ? (
+                      <span style={{
+                        padding: '5px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 600,
+                        background: 'var(--surface-hover)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)',
+                        display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'not-allowed',
+                      }} title="Finished schedules cannot be removed">
+                        <CheckCircle2 size={13} color="#10b981" /> Finished
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleDeleteSchedule(s.id)}
+                        className="btn-danger-action"
+                        title="Remove this shift slot"
+                      >
+                        <XCircle size={14} /> Remove
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -526,6 +887,114 @@ const DoctorDashboard = () => {
                 Once you add a schedule, patients can see and book your available time slots dynamically. ACID conflict locks prevent double-bookings.
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reviews Tab */}
+      {activeTab === 'reviews' && (
+        <div id="doctor-reviews-tab" style={{ marginTop: '20px' }}>
+          <div className="patient-profile-card">
+            <div className="patient-profile-card__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
+              <div>
+                <h2>Patient Ratings & Reviews</h2>
+                <p>Feedback and ratings submitted by patients who consulted with you.</p>
+              </div>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '6px 14px', borderRadius: '999px',
+                background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)',
+                color: '#f59e0b', fontWeight: 700, fontSize: '0.9rem'
+              }}>
+                <Star size={16} fill="#f59e0b" color="#f59e0b" />
+                <span>
+                  {doctorProfile?.average_rating
+                    ? `${doctorProfile.average_rating.toFixed(1)} / 5.0`
+                    : (reviews.length > 0 ? `${(reviews.reduce((a, b) => a + b.rating, 0) / reviews.length).toFixed(1)} / 5.0` : 'No ratings yet')}
+                </span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  ({reviews.length} {reviews.length === 1 ? 'review' : 'reviews'})
+                </span>
+              </div>
+            </div>
+
+            {loadingReviews ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                Loading patient reviews...
+              </div>
+            ) : reviews.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text-muted)' }}>
+                <Star size={40} style={{ opacity: 0.25, margin: '0 auto 12px' }} />
+                <h4 style={{ margin: '0 0 6px', fontSize: '1rem', color: 'var(--text-main)' }}>No Patient Reviews Yet</h4>
+                <p style={{ margin: 0, fontSize: '0.85rem' }}>
+                  Reviews and star ratings submitted by patients after completed consultations will appear here.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {reviews.map((rev) => (
+                  <div
+                    key={rev.id}
+                    style={{
+                      padding: '16px 20px',
+                      borderRadius: '14px',
+                      background: 'var(--bg-glass-card)',
+                      border: '1px solid var(--border-subtle)',
+                      transition: 'border-color 0.2s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '36px', height: '36px', borderRadius: '50%',
+                          background: 'rgba(16, 185, 129, 0.15)', color: '#10b981',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 700, fontSize: '0.9rem'
+                        }}>
+                          {rev.patient_name?.[0] || 'P'}
+                        </div>
+                        <div>
+                          <strong style={{ fontSize: '0.92rem', color: 'var(--text-main)', display: 'block' }}>
+                            {rev.patient_name || 'Verified Patient'}
+                          </strong>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            {rev.created_at ? new Date(rev.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            size={16}
+                            fill={s <= rev.rating ? '#f59e0b' : 'transparent'}
+                            color={s <= rev.rating ? '#f59e0b' : 'var(--border-subtle)'}
+                          />
+                        ))}
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f59e0b', marginLeft: '4px' }}>
+                          {rev.rating}/5
+                        </span>
+                      </div>
+                    </div>
+
+                    {rev.comment ? (
+                      <p style={{
+                        margin: '6px 0 0', fontSize: '0.88rem', color: 'var(--text-main)',
+                        lineHeight: 1.5, background: 'var(--surface-input)', padding: '10px 14px',
+                        borderRadius: '10px', fontStyle: 'normal'
+                      }}>
+                        "{rev.comment}"
+                      </p>
+                    ) : (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        No written comments provided.
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

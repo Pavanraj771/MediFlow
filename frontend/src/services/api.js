@@ -93,9 +93,15 @@ export const appointmentsService = {
   bookAppointment: async (data) => (await api.post('/appointments/', data)).data,
   getAppointments: async (params = {}) => (await api.get('/appointments/', { params })).data,
   getAppointment: async (id) => (await api.get(`/appointments/${id}/`)).data,
-  cancelAppointment: async (id) => (await api.patch(`/appointments/${id}/`, { status: 'CANCELLED' })).data,
-  updateAppointmentStatus: async (id, newStatus) =>
-    (await api.patch(`/appointments/${id}/update-status/`, { status: newStatus })).data,
+  cancelAppointment: async (id, reason = '') => {
+    try {
+      return (await api.post(`/appointments/${id}/cancel/`, { reason })).data;
+    } catch {
+      return (await api.patch(`/appointments/${id}/`, { status: 'CANCELLED', cancellation_reason: reason })).data;
+    }
+  },
+  updateAppointmentStatus: async (id, newStatus, reason = '') =>
+    (await api.patch(`/appointments/${id}/update-status/`, { status: newStatus, reason })).data,
 
   // Consultation (doctor)
   getConsultation: async (appointmentId) =>
@@ -110,7 +116,8 @@ export const appointmentsService = {
   deleteSchedule: async (id) => (await api.delete(`/appointments/schedules/${id}/`)).data,
 
   // Doctor — patient list
-  getMyPatients: async () => (await api.get('/appointments/my-patients/')).data,
+  getMyPatients: async (params = {}) => (await api.get('/appointments/my-patients/', { params })).data,
+  getMyPatientDetail: async (patientId) => (await api.get(`/appointments/my-patients/${patientId}/`)).data,
   getPatientConsultations: async (patientId) =>
     (await api.get(`/appointments/my-patients/${patientId}/consultations/`)).data,
 
@@ -139,6 +146,16 @@ export const appointmentsService = {
   requestRefill: async (data) => (await api.post('/appointments/refills/', data)).data,
   decideRefill: async (id, decision, doctorResponse = '') =>
     (await api.post(`/appointments/refills/${id}/decide/`, { decision, doctor_response: doctorResponse })).data,
+
+  // ── Notifications ───────────────────────────────────────────────────────────
+  getNotifications: async () => (await api.get('/appointments/notifications/')).data,
+  getUnreadNotificationCount: async () => (await api.get('/appointments/notifications/unread-count/')).data,
+  markNotificationRead: async (id) => (await api.post(`/appointments/notifications/${id}/mark-read/`)).data,
+  markAllNotificationsRead: async () => (await api.post('/appointments/notifications/mark-all-read/')).data,
+
+  // ── Doctor Reviews ──────────────────────────────────────────────────────────
+  getDoctorReviews: async (doctorId) => (await api.get('/appointments/reviews/', { params: { doctor: doctorId } })).data,
+  submitDoctorReview: async (data) => (await api.post('/appointments/reviews/', data)).data,
 };
 
 export default api;

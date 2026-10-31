@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from django.utils import timezone
+from django.db.models import Q
 from rest_framework import viewsets, generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,7 +12,8 @@ from django.shortcuts import get_object_or_404
 from .models import (
     PatientProfile, DoctorProfile, DoctorSchedule, DoctorLeave,
     Appointment, AppointmentStatus, ConsultationNote, VitalSigns, Prescription,
-    CareMessage, LabTest, PatientVitalsLog, PrescriptionRefill, RefillStatus
+    CareMessage, LabTest, PatientVitalsLog, PrescriptionRefill, RefillStatus,
+    Notification, NotificationType, DoctorReview
 )
 from .serializers import (
     PatientProfileSerializer, DoctorProfileSerializer,
@@ -19,6 +21,7 @@ from .serializers import (
     AppointmentSerializer, ConsultationNoteSerializer,
     CareMessageSerializer, LabTestSerializer,
     PatientVitalsLogSerializer, PrescriptionRefillSerializer,
+    NotificationSerializer, DoctorReviewSerializer,
 )
 from accounts.models import User, UserRole
 
@@ -75,10 +78,17 @@ class DoctorScheduleViewSet(viewsets.ModelViewSet):
     permission_classes = [IsDoctorUser]
 
     def get_queryset(self):
-        return DoctorSchedule.objects.filter(doctor=self.request.user).order_by('day_of_week', 'start_time')
+        return DoctorSchedule.objects.filter(doctor=self.request.user).order_by('date', 'day_of_week', 'start_time')
 
     def perform_create(self, serializer):
         serializer.save(doctor=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        today = timezone.localdate()
+        if instance.date and instance.date < today:
+            raise ValidationError("Cannot remove schedules of dates that are already finished.")
+        return super().destroy(request, *args, **kwargs)
 
 
 # ── Doctor Leave ──────────────────────────────────────────────────────────────
@@ -107,7 +117,12 @@ class AvailableSlotsView(APIView):
             return Response({"detail": "Invalid date format."}, status=status.HTTP_400_BAD_REQUEST)
 
         day_of_week = target_date.weekday()
-        schedules = DoctorSchedule.objects.filter(doctor_id=doctor_id, day_of_week=day_of_week, is_active=True).order_by('start_time')
+        schedules = DoctorSchedule.objects.filter(
+            doctor_id=doctor_id,
+            is_active=True
+        ).filter(
+            Q(date=target_date) | (Q(date__isnull=True) & Q(day_of_week=day_of_week))
+        ).order_by('start_time')
         if not schedules.exists():
             return Response([])
 
@@ -162,6 +177,14 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         elif user.role == UserRole.DOCTOR:
             qs = qs.filter(doctor=user)
         # else ADMIN gets all
+
+        patient_param = self.request.query_params.get('patient')
+        if patient_param:
+            qs = qs.filter(patient_id=patient_param)
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status=status_param)
+
         return qs.order_by('-appointment_datetime')
 
     @transaction.atomic
@@ -178,10 +201,11 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
         schedule = DoctorSchedule.objects.filter(
             doctor_id=doctor_id,
-            day_of_week=day_of_week,
             is_active=True,
             start_time__lte=appt_time,
             end_time__gt=appt_time
+        ).filter(
+            Q(date=appointment_dt.date()) | (Q(date__isnull=True) & Q(day_of_week=day_of_week))
         ).first()
 
         if not schedule:
@@ -189,9 +213,65 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
         serializer.validated_data['duration_minutes'] = schedule.slot_duration_minutes
         try:
-            serializer.save(patient=user)
+            appointment = serializer.save(patient=user)
+            try:
+                dt_str = timezone.localtime(appointment.appointment_datetime).strftime('%b %d, %Y at %I:%M %p')
+                Notification.objects.create(
+                    recipient=user,
+                    title="Appointment Confirmed",
+                    message=f"Your appointment with Dr. {appointment.doctor.full_name} is confirmed for {dt_str}.",
+                    notification_type=NotificationType.APPOINTMENT_SCHEDULED,
+                    related_id=str(appointment.id),
+                )
+                Notification.objects.create(
+                    recipient=appointment.doctor,
+                    title="New Appointment Booked",
+                    message=f"Patient {user.full_name} booked an appointment for {dt_str}.",
+                    notification_type=NotificationType.APPOINTMENT_SCHEDULED,
+                    related_id=str(appointment.id),
+                )
+            except Exception:
+                pass
         except IntegrityError:
             raise ValidationError("This slot is already booked.")
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        requested_status = request.data.get('status')
+        if requested_status:
+            user = request.user
+            if requested_status == AppointmentStatus.CANCELLED:
+                if user.role == UserRole.PATIENT and instance.patient != user:
+                    raise PermissionDenied("You can only cancel your own appointments.")
+                if user.role == UserRole.DOCTOR and instance.doctor != user:
+                    raise PermissionDenied("You can only cancel your own appointments.")
+                if instance.status == AppointmentStatus.COMPLETED:
+                    return Response({'detail': 'Completed appointments cannot be cancelled.'}, status=status.HTTP_400_BAD_REQUEST)
+                instance.status = AppointmentStatus.CANCELLED
+                instance.save()
+                try:
+                    dt_str = timezone.localtime(instance.appointment_datetime).strftime('%b %d, %Y at %I:%M %p')
+                    Notification.objects.create(
+                        recipient=instance.patient,
+                        title="Appointment Cancelled",
+                        message=f"Your appointment with Dr. {instance.doctor.full_name} for {dt_str} was cancelled.",
+                        notification_type=NotificationType.APPOINTMENT_CANCELLED,
+                        related_id=str(instance.id),
+                    )
+                    Notification.objects.create(
+                        recipient=instance.doctor,
+                        title="Appointment Cancelled",
+                        message=f"Appointment with {instance.patient.full_name} on {dt_str} was cancelled.",
+                        notification_type=NotificationType.APPOINTMENT_CANCELLED,
+                        related_id=str(instance.id),
+                    )
+                except Exception:
+                    pass
+            elif user.role in (UserRole.ADMIN, UserRole.DOCTOR):
+                instance.status = requested_status
+                instance.save()
+        return super().update(request, *args, partial=partial, **kwargs)
 
     def perform_update(self, serializer):
         old_status = self.get_object().status
@@ -205,6 +285,76 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 "WARNING" if instance.status == "CANCELLED" else "INFO"
             )
 
+    @action(detail=True, methods=['post', 'patch'], url_path='cancel', permission_classes=[permissions.IsAuthenticated])
+    def cancel(self, request, pk=None):
+        """Patient, doctor, or admin cancels an appointment."""
+        appointment = self.get_object()
+        user = request.user
+        if user.role == UserRole.PATIENT and appointment.patient != user:
+            raise PermissionDenied("You can only cancel your own appointments.")
+        if user.role == UserRole.DOCTOR and appointment.doctor != user:
+            raise PermissionDenied("You can only cancel your own appointments.")
+
+        if appointment.status == AppointmentStatus.CANCELLED:
+            return Response({'detail': 'Appointment is already cancelled.'}, status=status.HTTP_400_BAD_REQUEST)
+        if appointment.status == AppointmentStatus.COMPLETED:
+            return Response({'detail': 'Completed appointments cannot be cancelled.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reason = request.data.get('reason', '').strip() or request.data.get('cancellation_reason', '').strip()
+        if user.role == UserRole.DOCTOR and not reason:
+            return Response({'detail': 'Please provide a reason for cancelling this appointment.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        appointment.status = AppointmentStatus.CANCELLED
+        appointment.cancellation_reason = reason
+        appointment.cancelled_by_role = user.role
+        appointment.save()
+
+        try:
+            dt_str = timezone.localtime(appointment.appointment_datetime).strftime('%b %d, %Y at %I:%M %p')
+            if user.role == UserRole.DOCTOR:
+                Notification.objects.create(
+                    recipient=appointment.patient,
+                    title="Appointment Cancelled by Doctor",
+                    message=f"Your appointment with Dr. {appointment.doctor.full_name} for {dt_str} has been cancelled by the doctor due to: {reason}",
+                    notification_type=NotificationType.APPOINTMENT_CANCELLED,
+                    related_id=str(appointment.id),
+                )
+                Notification.objects.create(
+                    recipient=appointment.doctor,
+                    title="Appointment Cancelled",
+                    message=f"You cancelled the appointment with {appointment.patient.full_name} for {dt_str}. Reason: {reason}",
+                    notification_type=NotificationType.APPOINTMENT_CANCELLED,
+                    related_id=str(appointment.id),
+                )
+            else:
+                Notification.objects.create(
+                    recipient=appointment.patient,
+                    title="Appointment Cancelled",
+                    message=f"Your appointment with Dr. {appointment.doctor.full_name} for {dt_str} has been cancelled successfully.",
+                    notification_type=NotificationType.APPOINTMENT_CANCELLED,
+                    related_id=str(appointment.id),
+                )
+                Notification.objects.create(
+                    recipient=appointment.doctor,
+                    title="Appointment Cancelled by Patient",
+                    message=f"Patient {appointment.patient.full_name} cancelled their appointment scheduled for {dt_str}.",
+                    notification_type=NotificationType.APPOINTMENT_CANCELLED,
+                    related_id=str(appointment.id),
+                )
+        except Exception:
+            pass
+
+        if user.role == UserRole.ADMIN:
+            from accounts.views import record_audit_log
+            record_audit_log(
+                user,
+                "APPOINTMENT_CANCELLED",
+                f"Appointment {appointment.id} cancelled by admin {user.email}.",
+                "WARNING"
+            )
+
+        return Response(AppointmentSerializer(appointment).data, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['patch'], url_path='update-status', permission_classes=[IsDoctorUser])
     def update_status(self, request, pk=None):
         """Doctor marks appointment as COMPLETED or NO_SHOW."""
@@ -215,8 +365,51 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         allowed = [AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW, AppointmentStatus.CANCELLED]
         if new_status not in [s.value for s in allowed]:
             return Response({'detail': 'Invalid status.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if new_status == AppointmentStatus.CANCELLED:
+            reason = request.data.get('reason', '').strip() or request.data.get('cancellation_reason', '').strip()
+            if not reason:
+                return Response({'detail': 'Please provide a reason for cancelling this appointment.'}, status=status.HTTP_400_BAD_REQUEST)
+            appointment.cancellation_reason = reason
+            appointment.cancelled_by_role = UserRole.DOCTOR
+            appointment.status = AppointmentStatus.CANCELLED
+            appointment.save()
+
+            try:
+                dt_str = timezone.localtime(appointment.appointment_datetime).strftime('%b %d, %Y at %I:%M %p')
+                Notification.objects.create(
+                    recipient=appointment.patient,
+                    title="Appointment Cancelled by Doctor",
+                    message=f"Your appointment with Dr. {appointment.doctor.full_name} for {dt_str} has been cancelled by the doctor due to: {reason}",
+                    notification_type=NotificationType.APPOINTMENT_CANCELLED,
+                    related_id=str(appointment.id),
+                )
+                Notification.objects.create(
+                    recipient=appointment.doctor,
+                    title="Appointment Cancelled",
+                    message=f"You cancelled the appointment with {appointment.patient.full_name} for {dt_str}. Reason: {reason}",
+                    notification_type=NotificationType.APPOINTMENT_CANCELLED,
+                    related_id=str(appointment.id),
+                )
+            except Exception:
+                pass
+            return Response(AppointmentSerializer(appointment).data)
+
         appointment.status = new_status
         appointment.save()
+
+        if new_status == AppointmentStatus.COMPLETED:
+            try:
+                Notification.objects.create(
+                    recipient=appointment.patient,
+                    title="Appointment Completed - Rate Your Doctor",
+                    message=f"Your appointment with Dr. {appointment.doctor.full_name} has been successfully completed. We value your feedback! Please take a moment to rate and review your consultation experience.",
+                    notification_type=NotificationType.APPOINTMENT_COMPLETED,
+                    related_id=str(appointment.id),
+                )
+            except Exception:
+                pass
+
         return Response(AppointmentSerializer(appointment).data)
 
     @action(detail=True, methods=['get', 'post', 'put', 'patch'], url_path='consult', permission_classes=[IsDoctorUser])
@@ -251,6 +444,16 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         if appointment.status == AppointmentStatus.SCHEDULED:
             appointment.status = AppointmentStatus.COMPLETED
             appointment.save()
+            try:
+                Notification.objects.create(
+                    recipient=appointment.patient,
+                    title="Appointment Completed - Rate Your Doctor",
+                    message=f"Your appointment with Dr. {appointment.doctor.full_name} has been successfully completed. We value your feedback! Please take a moment to rate and review your consultation experience.",
+                    notification_type=NotificationType.APPOINTMENT_COMPLETED,
+                    related_id=str(appointment.id),
+                )
+            except Exception:
+                pass
 
         return Response(ConsultationNoteSerializer(consultation).data, status=status.HTTP_200_OK)
 
@@ -262,11 +465,17 @@ class DoctorPatientListView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         doctor = request.user
+        today_date = timezone.localdate()
+        filter_param = request.query_params.get('filter')
+
         appointments = (
             Appointment.objects.filter(doctor=doctor)
             .select_related('patient', 'patient__patient_profile')
             .order_by('-appointment_datetime')
         )
+        if filter_param == 'today':
+            appointments = appointments.filter(appointment_datetime__date=today_date)
+
         # Build unique patient map (latest appointment first)
         seen = set()
         result = []
@@ -275,16 +484,63 @@ class DoctorPatientListView(generics.ListAPIView):
             if p.id not in seen:
                 seen.add(p.id)
                 appt_count = Appointment.objects.filter(doctor=doctor, patient=p).count()
+                visited_count = Appointment.objects.filter(doctor=doctor, patient=p, status=AppointmentStatus.COMPLETED).count()
+                has_today = Appointment.objects.filter(doctor=doctor, patient=p, appointment_datetime__date=today_date).exists()
+                profile = getattr(p, 'patient_profile', None)
                 result.append({
                     'id': str(p.id),
                     'full_name': p.full_name,
                     'email': p.email,
                     'phone_number': p.phone_number,
                     'appointment_count': appt_count,
+                    'visited_count': visited_count,
+                    'has_visited': visited_count > 0,
+                    'has_today_appointment': has_today,
+                    'blood_group': profile.blood_group if profile else None,
+                    'date_of_birth': profile.date_of_birth if profile else None,
                     'last_appointment': appt.appointment_datetime.isoformat(),
                     'last_status': appt.status,
                 })
         return Response(result)
+
+
+# ── Patient Detail & Visited Appointments for Doctor ──────────────────────────
+class DoctorPatientDetailView(APIView):
+    """Doctor can view patient profile and all their visited appointment history with full notes."""
+    permission_classes = [IsDoctorUser]
+
+    def get(self, request, patient_id):
+        doctor = request.user
+        patient = get_object_or_404(User, id=patient_id, role=UserRole.PATIENT)
+        profile = getattr(patient, 'patient_profile', None)
+
+        appointments = Appointment.objects.filter(
+            doctor=doctor,
+            patient=patient
+        ).select_related(
+            'patient', 'doctor', 'doctor__doctor_profile', 'consultation'
+        ).prefetch_related('consultation__prescriptions', 'consultation__vitals').order_by('-appointment_datetime')
+
+        emergency_contact = ''
+        if profile and profile.emergency_contact_name:
+            emergency_contact = f"{profile.emergency_contact_name} ({profile.emergency_contact_relation}): {profile.emergency_contact_phone}".strip()
+
+        return Response({
+            'patient': {
+                'id': str(patient.id),
+                'full_name': patient.full_name,
+                'email': patient.email,
+                'phone_number': patient.phone_number,
+                'blood_group': profile.blood_group if profile else None,
+                'date_of_birth': profile.date_of_birth if profile else None,
+                'address': profile.address if profile else '',
+                'allergies': profile.allergies if profile else '',
+                'chronic_conditions': profile.chronic_conditions if profile else '',
+                'emergency_contact': emergency_contact,
+                'critical_alert': bool(profile.critical_alert) if profile else False,
+            },
+            'appointments': AppointmentSerializer(appointments, many=True).data,
+        })
 
 
 # ── Patient health records for doctor ────────────────────────────────────────
@@ -466,3 +722,131 @@ class PrescriptionRefillViewSet(viewsets.ModelViewSet):
         refill.doctor_response = notes
         refill.save()
         return Response(PrescriptionRefillSerializer(refill).data)
+
+
+# ── Notifications ViewSet ─────────────────────────────────────────────────────
+class NotificationViewSet(viewsets.ModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        self.ensure_welcome_notification(user)
+        self.check_30min_reminders(user)
+        self.sync_admin_broadcasts(user)
+        return Notification.objects.filter(recipient=user).order_by('-created_at')
+
+    def ensure_welcome_notification(self, user):
+        if not Notification.objects.filter(recipient=user, notification_type=NotificationType.WELCOME).exists():
+            Notification.objects.create(
+                recipient=user,
+                title="Welcome to MediFlow!",
+                message=f"Hello {user.full_name or 'there'}, welcome to your MediFlow Patient Portal! Here you can book appointments, review clinical notes, manage daily prescriptions, and stay in direct touch with your care team.",
+                notification_type=NotificationType.WELCOME,
+            )
+
+    def check_30min_reminders(self, user):
+        now = timezone.now()
+        in_30_mins = now + timedelta(minutes=30)
+        upcoming_appts = Appointment.objects.filter(
+            Q(patient=user) | Q(doctor=user),
+            status=AppointmentStatus.SCHEDULED,
+            appointment_datetime__gte=now,
+            appointment_datetime__lte=in_30_mins,
+        ).select_related('doctor', 'patient')
+
+        for apt in upcoming_appts:
+            if not Notification.objects.filter(recipient=user, notification_type=NotificationType.APPOINTMENT_REMINDER, related_id=str(apt.id)).exists():
+                is_patient = (user == apt.patient)
+                other_name = f"Dr. {apt.doctor.full_name}" if is_patient else apt.patient.full_name
+                dt_str = timezone.localtime(apt.appointment_datetime).strftime('%I:%M %p')
+                Notification.objects.create(
+                    recipient=user,
+                    title="Upcoming Appointment Reminder",
+                    message=f"Reminder: You have an appointment with {other_name} starting at {dt_str} (in less than 30 minutes)!",
+                    notification_type=NotificationType.APPOINTMENT_REMINDER,
+                    related_id=str(apt.id),
+                )
+
+    def sync_admin_broadcasts(self, user):
+        from accounts.models import HospitalBroadcast
+        active_broadcasts = HospitalBroadcast.objects.filter(is_active=True).order_by('-created_at')[:10]
+        for b in active_broadcasts:
+            if not Notification.objects.filter(recipient=user, notification_type=NotificationType.ADMIN_BROADCAST, related_id=str(b.id)).exists():
+                Notification.objects.create(
+                    recipient=user,
+                    title=f"Hospital Notice: {b.title}",
+                    message=b.message,
+                    notification_type=NotificationType.ADMIN_BROADCAST,
+                    related_id=str(b.id),
+                )
+
+    @action(detail=False, methods=['get'], url_path='unread-count')
+    def unread_count(self, request):
+        user = request.user
+        self.ensure_welcome_notification(user)
+        self.check_30min_reminders(user)
+        self.sync_admin_broadcasts(user)
+        count = Notification.objects.filter(recipient=user, is_read=False).count()
+        return Response({'unread_count': count})
+
+    @action(detail=False, methods=['post'], url_path='mark-all-read')
+    def mark_all_read(self, request):
+        updated = Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        return Response({'marked_read': updated})
+
+    @action(detail=True, methods=['patch', 'post'], url_path='mark-read')
+    def mark_read(self, request, pk=None):
+        notif = self.get_object()
+        notif.is_read = True
+        notif.save()
+        return Response(NotificationSerializer(notif).data)
+
+
+# ── Doctor Reviews ViewSet ────────────────────────────────────────────────────
+class DoctorReviewViewSet(viewsets.ModelViewSet):
+    serializer_class = DoctorReviewSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = DoctorReview.objects.all().select_related('patient', 'doctor', 'appointment')
+
+        # If a doctor is accessing reviews, default to reviews received by this doctor
+        if getattr(user, 'role', None) == UserRole.DOCTOR:
+            qs = qs.filter(doctor=user)
+        else:
+            doctor_id = self.request.query_params.get('doctor')
+            if doctor_id and doctor_id != 'undefined' and doctor_id != 'null':
+                try:
+                    import uuid
+                    val_uuid = uuid.UUID(str(doctor_id))
+                    qs = qs.filter(Q(doctor_id=val_uuid) | Q(doctor__doctor_profile__id=val_uuid))
+                except (ValueError, TypeError):
+                    try:
+                        int_id = int(doctor_id)
+                        qs = qs.filter(doctor__doctor_profile__id=int_id)
+                    except (ValueError, TypeError):
+                        pass
+
+        appointment_id = self.request.query_params.get('appointment')
+        if appointment_id and appointment_id != 'undefined' and appointment_id != 'null':
+            try:
+                import uuid
+                val_uuid = uuid.UUID(str(appointment_id))
+                qs = qs.filter(appointment_id=val_uuid)
+            except (ValueError, TypeError):
+                pass
+
+        return qs.order_by('-created_at')
+
+    def perform_create(self, serializer):
+        appointment = serializer.validated_data.get('appointment')
+        existing = DoctorReview.objects.filter(appointment=appointment).first()
+        if existing:
+            existing.rating = serializer.validated_data.get('rating', existing.rating)
+            existing.comment = serializer.validated_data.get('comment', existing.comment)
+            existing.save()
+            serializer.instance = existing
+            return
+        serializer.save(patient=self.request.user, doctor=appointment.doctor)

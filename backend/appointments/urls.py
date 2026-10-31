@@ -9,14 +9,19 @@ from .views import (
     AvailableSlotsView,
     AppointmentViewSet,
     DoctorPatientListView,
+    DoctorPatientDetailView,
     PatientConsultationHistoryView,
     CareMessageViewSet,
     LabTestViewSet,
     PatientVitalsLogViewSet,
     PrescriptionRefillViewSet,
+    NotificationViewSet,
+    DoctorReviewViewSet,
 )
 
 router = DefaultRouter()
+router.register(r'notifications', NotificationViewSet, basename='notification')
+router.register(r'reviews', DoctorReviewViewSet, basename='review')
 router.register(r'messages', CareMessageViewSet, basename='message')
 router.register(r'lab-tests', LabTestViewSet, basename='lab-test')
 router.register(r'vitals-logs', PatientVitalsLogViewSet, basename='vitals-log')
@@ -36,6 +41,7 @@ urlpatterns = [
 
     # Doctor portal — patient list & history
     path('my-patients/', DoctorPatientListView.as_view(), name='doctor-patient-list'),
+    path('my-patients/<uuid:patient_id>/', DoctorPatientDetailView.as_view(), name='doctor-patient-detail'),
     path('my-patients/<uuid:patient_id>/consultations/', PatientConsultationHistoryView.as_view(), name='patient-consultations'),
 
     # Router (appointments + schedules + leaves)

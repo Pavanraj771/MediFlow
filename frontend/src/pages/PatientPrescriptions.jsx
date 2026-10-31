@@ -3,21 +3,55 @@ import { Link } from 'react-router-dom';
 import {
   ArrowLeft, ClipboardPlus, Pill, Calendar, AlertCircle,
   Search, Clock, FileHeart, CheckCircle2, RotateCw,
-  Sun, Sunset, Moon, Sparkles, Send, X, ShieldCheck
+  Sun, Sunset, Moon, Sparkles, Send, X, ShieldCheck,
+  Utensils, Check, CalendarDays, UserRound, ChevronRight
 } from 'lucide-react';
 import PatientAvatarMenu from '../components/PatientAvatarMenu';
 import { appointmentsService } from '../services/api';
 import '../styles/PatientPortal.css';
 
-const timeSlots = [
-  { id: 'morning', label: 'Morning Routine', icon: Sun, color: '#f59e0b', desc: 'Take with breakfast or morning water' },
-  { id: 'afternoon', label: 'Afternoon Routine', icon: Sun, color: '#0ea5e9', desc: 'Take with lunch or midday' },
-  { id: 'evening', label: 'Evening Routine', icon: Sunset, color: '#8b5cf6', desc: 'Take with dinner' },
-  { id: 'night', label: 'Bedtime Routine', icon: Moon, color: '#6366f1', desc: 'Take before sleep' },
+// The 6 standard meal-timing slots suggested by physicians
+const ROUTINE_SLOTS = [
+  { id: 'Before Breakfast', label: 'Before Breakfast', group: 'Morning', icon: Sun, color: '#f59e0b', desc: 'Take ~30 minutes prior to morning breakfast' },
+  { id: 'After Breakfast', label: 'After Breakfast', group: 'Morning', icon: Sun, color: '#eab308', desc: 'Take immediately after your morning meal' },
+  { id: 'Before Lunch', label: 'Before Lunch', group: 'Afternoon', icon: Sun, color: '#0ea5e9', desc: 'Take ~30 minutes before afternoon lunch' },
+  { id: 'After Lunch', label: 'After Lunch', group: 'Afternoon', icon: Sun, color: '#0284c7', desc: 'Take immediately following lunch' },
+  { id: 'Before Dinner', label: 'Before Dinner', group: 'Night', icon: Sunset, color: '#8b5cf6', desc: 'Take ~30 minutes before evening dinner' },
+  { id: 'After Dinner', label: 'After Dinner', group: 'Night', icon: Moon, color: '#6366f1', desc: 'Take after dinner before resting' },
 ];
+
+const getPrescriptionTimings = (prescription) => {
+  if (!prescription.frequency) return [];
+  if (Array.isArray(prescription.frequency)) return prescription.frequency;
+  return prescription.frequency.split(',').map(s => s.trim()).filter(Boolean);
+};
+
+const doesPrescriptionMatchSlot = (prescription, slotId) => {
+  const timings = getPrescriptionTimings(prescription);
+  const slotLower = slotId.toLowerCase();
+
+  // Direct check
+  if (timings.some(t => t.toLowerCase() === slotLower || t.toLowerCase().includes(slotLower))) {
+    return true;
+  }
+
+  // Fallbacks for legacy/freeform frequency strings
+  const freqRaw = (prescription.frequency || '').toLowerCase();
+  if (slotId === 'Before Breakfast' && freqRaw.includes('before breakfast')) return true;
+  if (slotId === 'After Breakfast' && (freqRaw.includes('after breakfast') || freqRaw.includes('morning') || freqRaw.includes('breakfast') || freqRaw.includes('once daily') || freqRaw.includes('od'))) return true;
+  if (slotId === 'Before Lunch' && freqRaw.includes('before lunch')) return true;
+  if (slotId === 'After Lunch' && (freqRaw.includes('after lunch') || freqRaw.includes('afternoon') || freqRaw.includes('lunch') || freqRaw.includes('midday'))) return true;
+  if (slotId === 'Before Dinner' && freqRaw.includes('before dinner')) return true;
+  if (slotId === 'After Dinner' && (freqRaw.includes('after dinner') || freqRaw.includes('night') || freqRaw.includes('dinner') || freqRaw.includes('bedtime') || freqRaw.includes('evening') || freqRaw.includes('twice daily') || freqRaw.includes('bd') || freqRaw.includes('bid'))) return true;
+
+  return false;
+};
+
+const DAYS_LEFT_STORAGE_KEY = 'mediflow_pill_days_left';
 
 const PatientPrescriptions = () => {
   const [activeTab, setActiveTab] = useState('ROUTINE'); // 'ROUTINE' | 'LIBRARY' | 'REFILLS'
+  const [slotFilter, setSlotFilter] = useState('ALL'); // 'ALL' | 'Morning' | 'Afternoon' | 'Night'
   const [prescriptions, setPrescriptions] = useState([]);
   const [refills, setRefills] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +62,16 @@ const PatientPrescriptions = () => {
   const [takenPills, setTakenPills] = useState(() => {
     try {
       const saved = localStorage.getItem(todayKey);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // Persistent days left tracking per (pillId, slotId)
+  const [daysLeftMap, setDaysLeftMap] = useState(() => {
+    try {
+      const saved = localStorage.getItem(DAYS_LEFT_STORAGE_KEY);
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
@@ -63,7 +107,7 @@ const PatientPrescriptions = () => {
           });
         }
       });
-      all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      all.sort((a, b) => new Date(b.created_at || b.appointment_date) - new Date(a.created_at || a.appointment_date));
       setPrescriptions(all);
       setRefills(refillList);
     } catch (err) {
@@ -77,13 +121,62 @@ const PatientPrescriptions = () => {
     loadData();
   }, []);
 
-  const togglePillTaken = (pillId, slot) => {
-    const key = `${pillId}_${slot}`;
-    const updated = { ...takenPills, [key]: !takenPills[key] };
-    setTakenPills(updated);
+  const getDaysLeft = (pillId, slotId, originalDuration) => {
+    const key = `${pillId}_${slotId}`;
+    if (daysLeftMap[key] !== undefined) {
+      return daysLeftMap[key];
+    }
+    const num = parseInt(String(originalDuration || '').replace(/[^0-9]/g, ''), 10);
+    return !isNaN(num) && num > 0 ? num : 5;
+  };
+
+  const handleMarkTaken = (pillId, slotId, originalDuration) => {
+    const key = `${pillId}_${slotId}`;
+    const currentDays = getDaysLeft(pillId, slotId, originalDuration);
+    if (currentDays <= 0) return;
+
+    const newDays = currentDays - 1;
+
+    const updatedDays = { ...daysLeftMap, [key]: newDays };
+    setDaysLeftMap(updatedDays);
     try {
-      localStorage.setItem(todayKey, JSON.stringify(updated));
-    } catch {}
+      localStorage.setItem(DAYS_LEFT_STORAGE_KEY, JSON.stringify(updatedDays));
+    } catch (e) {
+      console.error(e);
+    }
+
+    const updatedTaken = { ...takenPills, [key]: true };
+    setTakenPills(updatedTaken);
+    try {
+      localStorage.setItem(todayKey, JSON.stringify(updatedTaken));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleToggleTaken = (pillId, slotId, originalDuration) => {
+    const key = `${pillId}_${slotId}`;
+    const isTaken = Boolean(takenPills[key]);
+
+    if (isTaken) {
+      const currentDays = getDaysLeft(pillId, slotId, originalDuration);
+      const parsedOriginal = parseInt(String(originalDuration || '').replace(/[^0-9]/g, ''), 10) || 5;
+      const newDays = Math.min(parsedOriginal, currentDays + 1);
+
+      const updatedDays = { ...daysLeftMap, [key]: newDays };
+      setDaysLeftMap(updatedDays);
+      try {
+        localStorage.setItem(DAYS_LEFT_STORAGE_KEY, JSON.stringify(updatedDays));
+      } catch (e) {}
+
+      const updatedTaken = { ...takenPills, [key]: false };
+      setTakenPills(updatedTaken);
+      try {
+        localStorage.setItem(todayKey, JSON.stringify(updatedTaken));
+      } catch (e) {}
+    } else {
+      handleMarkTaken(pillId, slotId, originalDuration);
+    }
   };
 
   const openRefillModal = (prescription) => {
@@ -118,18 +211,37 @@ const PatientPrescriptions = () => {
   };
 
   const filtered = prescriptions.filter(p =>
-    p.medication_name.toLowerCase().includes(search.toLowerCase()) ||
-    p.doctor?.toLowerCase().includes(search.toLowerCase())
+    p.medication_name?.toLowerCase().includes(search.toLowerCase()) ||
+    p.doctor?.toLowerCase().includes(search.toLowerCase()) ||
+    p.frequency?.toLowerCase().includes(search.toLowerCase())
   );
 
   const formatDate = (iso) => new Date(iso).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   });
 
-  // Calculate adherence
-  const totalDosesToday = prescriptions.length * 2; // approximation based on 2x daily
-  const takenCount = Object.values(takenPills).filter(Boolean).length;
-  const adherenceScore = totalDosesToday > 0 ? Math.min(100, Math.round((takenCount / Math.max(1, prescriptions.length)) * 100)) : 100;
+  // Calculate adherence based only on active scheduled doses today (daysLeft > 0)
+  let totalScheduledDoses = 0;
+  let takenScheduledDoses = 0;
+
+  ROUTINE_SLOTS.forEach(slot => {
+    const slotMeds = prescriptions.filter(p => doesPrescriptionMatchSlot(p, slot.id) && getDaysLeft(p.id, slot.id, p.duration) > 0);
+    totalScheduledDoses += slotMeds.length;
+    slotMeds.forEach(p => {
+      const key = `${p.id}_${slot.id}`;
+      if (takenPills[key]) {
+        takenScheduledDoses += 1;
+      }
+    });
+  });
+
+  const adherenceScore = totalScheduledDoses > 0
+    ? Math.min(100, Math.round((takenScheduledDoses / totalScheduledDoses) * 100))
+    : 100;
+
+  const displayedSlots = slotFilter === 'ALL'
+    ? ROUTINE_SLOTS
+    : ROUTINE_SLOTS.filter(s => s.group === slotFilter);
 
   return (
     <div className="patient-portal-page">
@@ -153,14 +265,14 @@ const PatientPrescriptions = () => {
               background: 'rgba(139, 92, 246, 0.12)', border: '1px solid rgba(139, 92, 246, 0.3)',
               display: 'grid', placeItems: 'center', color: '#8b5cf6',
             }}>
-              <Pill size={18} />
+              <ClipboardPlus size={18} />
             </div>
             <div>
               <h1 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: 'var(--heading-color)' }}>
                 Prescriptions & Daily Medication Routine
               </h1>
               <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                Manage daily pill adherence, treatment guidelines, and 1-click refills
+                Daily pill adherence schedule with meal-timing routines, days remaining tracking, and refills
               </p>
             </div>
           </div>
@@ -170,11 +282,11 @@ const PatientPrescriptions = () => {
 
       {/* Navigation Tabs */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: '10px',
-        marginBottom: '24px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px',
+        display: 'flex', gap: '10px', marginBottom: '24px',
+        borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px',
       }}>
         {[
-          { id: 'ROUTINE', label: "Daily Pill Schedule", icon: Sparkles },
+          { id: 'ROUTINE', label: "Today's Pill Routine", icon: Clock },
           { id: 'LIBRARY', label: `All Prescriptions (${prescriptions.length})`, icon: Pill },
           { id: 'REFILLS', label: `Refill Requests (${refills.length})`, icon: RotateCw },
         ].map(tab => {
@@ -186,58 +298,98 @@ const PatientPrescriptions = () => {
               onClick={() => setActiveTab(tab.id)}
               style={{
                 display: 'flex', alignItems: 'center', gap: '8px',
-                padding: '10px 18px', borderRadius: '12px',
-                border: isActive ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid transparent',
-                background: isActive ? 'rgba(139, 92, 246, 0.12)' : 'transparent',
-                color: isActive ? '#a78bfa' : 'var(--text-muted)',
+                padding: '9px 18px', borderRadius: '12px',
+                border: isActive ? '1px solid #8b5cf6' : '1px solid transparent',
+                background: isActive ? 'rgba(139, 92, 246, 0.15)' : 'transparent',
+                color: isActive ? '#8b5cf6' : 'var(--text-muted)',
                 fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer',
                 transition: 'all 0.15s ease',
               }}
             >
-              <Icon size={16} /> {tab.label}
+              <Icon size={16} />
+              {tab.label}
             </button>
           );
         })}
       </div>
 
-      {/* ── TAB 1: DAILY PILL ROUTINE ───────────────────────────────────────── */}
+      {/* ── TAB 1: DAILY PILL ROUTINE (6 MEAL TIMINGS WITH DAYS LEFT TRACKING) ── */}
       {activeTab === 'ROUTINE' && (
-        <div>
-          {/* Adherence Banner */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
+          {/* Adherence Card Banner */}
           <div style={{
-            padding: '20px 24px', borderRadius: '20px',
-            background: 'var(--bg-glass-card)', border: '1px solid var(--border-subtle)',
-            marginBottom: '24px', display: 'flex', flexWrap: 'wrap',
-            justifyContent: 'space-between', alignItems: 'center', gap: '16px',
-            backdropFilter: 'blur(20px)',
+            background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.14) 0%, rgba(99, 102, 241, 0.08) 100%)',
+            borderRadius: '20px',
+            border: '1px solid rgba(139, 92, 246, 0.3)',
+            padding: '20px 24px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '16px',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
               <div style={{
-                width: '52px', height: '52px', borderRadius: '16px',
+                width: '46px', height: '46px', borderRadius: '14px',
                 background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
                 display: 'grid', placeItems: 'center', color: '#fff',
                 boxShadow: '0 4px 14px rgba(139, 92, 246, 0.3)',
               }}>
-                <Sparkles size={24} />
+                <Sparkles size={22} />
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--heading-color)' }}>
-                  Today's Medication Adherence
+                <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#8b5cf6', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  MEDICATION ADHERENCE TODAY
+                </span>
+                <h3 style={{ margin: '2px 0 0', fontSize: '1.25rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                  {totalScheduledDoses === 0
+                    ? 'All active courses completed or none scheduled'
+                    : adherenceScore === 100
+                    ? 'All prescribed doses completed for today!'
+                    : `${takenScheduledDoses} of ${totalScheduledDoses} doses taken`}
                 </h3>
-                <p style={{ margin: '3px 0 0', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-                  {takenCount} doses confirmed taken today • Keep up your healthy treatment routine!
+                <p style={{ margin: '2px 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  Pills display remaining course days. When remaining days reach 0, completed medications automatically leave the routine.
                 </p>
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#8b5cf6' }}>
+                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: adherenceScore === 100 ? '#10b981' : '#8b5cf6' }}>
                   {adherenceScore}%
                 </div>
-                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Today's Score</div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Today's Compliance</div>
               </div>
             </div>
+          </div>
+
+          {/* Meal Routine Filter Pills */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)', marginRight: '4px' }}>
+              Meal Time Filter:
+            </span>
+            {[
+              { id: 'ALL', label: 'All Meal Timings' },
+              { id: 'Morning', label: 'Morning (Breakfast)' },
+              { id: 'Afternoon', label: 'Afternoon (Lunch)' },
+              { id: 'Night', label: 'Night (Dinner)' },
+            ].map(f => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setSlotFilter(f.id)}
+                style={{
+                  padding: '6px 14px', borderRadius: '999px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
+                  border: slotFilter === f.id ? '1px solid #8b5cf6' : '1px solid var(--border-subtle)',
+                  background: slotFilter === f.id ? 'rgba(139, 92, 246, 0.15)' : 'var(--bg-glass-card)',
+                  color: slotFilter === f.id ? '#8b5cf6' : 'var(--text-muted)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
 
           {/* Time of Day Slots */}
@@ -254,81 +406,162 @@ const PatientPrescriptions = () => {
               </p>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-              {timeSlots.map(slot => {
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+              {displayedSlots.map(slot => {
                 const Icon = slot.icon;
+                // Only show medications for this slot that have days left > 0
+                const slotMeds = prescriptions.filter(p => doesPrescriptionMatchSlot(p, slot.id) && getDaysLeft(p.id, slot.id, p.duration) > 0);
+                const hasMeds = slotMeds.length > 0;
+
                 return (
                   <div
                     key={slot.id}
                     style={{
                       background: 'var(--bg-glass-card)',
                       borderRadius: '18px',
-                      border: '1px solid var(--border-subtle)',
+                      border: hasMeds ? '1.5px solid rgba(139, 92, 246, 0.3)' : '1px solid var(--border-subtle)',
                       padding: '20px',
                       backdropFilter: 'blur(20px)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      opacity: hasMeds ? 1 : 0.65,
+                      transition: 'all 0.2s',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-                      <div style={{
-                        width: '34px', height: '34px', borderRadius: '10px',
-                        background: `${slot.color}20`, color: slot.color,
-                        display: 'grid', placeItems: 'center',
+                    {/* Slot Header */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '36px', height: '36px', borderRadius: '10px',
+                          background: `${slot.color}20`, color: slot.color,
+                          display: 'grid', placeItems: 'center',
+                        }}>
+                          <Icon size={18} />
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <h4 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                              {slot.label}
+                            </h4>
+                            <span style={{
+                              padding: '1px 6px', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 700,
+                              background: 'var(--surface-hover)', color: 'var(--text-muted)',
+                            }}>
+                              {slot.group}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{slot.desc}</span>
+                        </div>
+                      </div>
+
+                      <span style={{
+                        padding: '2px 8px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 700,
+                        background: hasMeds ? 'rgba(139, 92, 246, 0.15)' : 'var(--surface-hover)',
+                        color: hasMeds ? '#8b5cf6' : 'var(--text-dim)',
                       }}>
-                        <Icon size={18} />
-                      </div>
-                      <div>
-                        <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: 'var(--heading-color)' }}>
-                          {slot.label}
-                        </h4>
-                        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{slot.desc}</span>
-                      </div>
+                        {slotMeds.length} active pill{slotMeds.length !== 1 ? 's' : ''}
+                      </span>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {prescriptions.map(p => {
-                        const key = `${p.id}_${slot.id}`;
-                        const isTaken = Boolean(takenPills[key]);
+                    {/* Slot Medications */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
+                      {!hasMeds ? (
+                        <div style={{
+                          padding: '16px', borderRadius: '12px', background: 'var(--surface-hover)',
+                          color: 'var(--text-dim)', fontSize: '0.8rem', textAlign: 'center', fontStyle: 'italic',
+                        }}>
+                          No active medication scheduled for this meal timing (or course completed).
+                        </div>
+                      ) : (
+                        slotMeds.map(p => {
+                          const key = `${p.id}_${slot.id}`;
+                          const isTaken = Boolean(takenPills[key]);
+                          const daysLeft = getDaysLeft(p.id, slot.id, p.duration);
 
-                        return (
-                          <div
-                            key={p.id}
-                            onClick={() => togglePillTaken(p.id, slot.id)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              padding: '12px 14px',
-                              borderRadius: '12px',
-                              cursor: 'pointer',
-                              background: isTaken ? 'rgba(16, 185, 129, 0.08)' : 'var(--surface-hover)',
-                              border: isTaken ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--border-subtle)',
-                              transition: 'all 0.15s ease',
-                            }}
-                          >
-                            <div>
-                              <strong style={{
-                                fontSize: '0.88rem',
-                                color: isTaken ? '#10b981' : 'var(--heading-color)',
-                                textDecoration: isTaken ? 'line-through' : 'none',
-                              }}>
-                                {p.medication_name}
-                              </strong>
-                              <p style={{ margin: '2px 0 0', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                                {p.dosage} • {p.instructions || 'With water'}
-                              </p>
-                            </div>
+                          return (
+                            <div
+                              key={p.id}
+                              style={{
+                                padding: '14px 16px',
+                                borderRadius: '12px',
+                                background: isTaken ? 'rgba(16, 185, 129, 0.08)' : 'var(--surface-hover)',
+                                border: isTaken ? '1.5px solid #10b981' : '1px solid var(--border-subtle)',
+                                transition: 'all 0.15s ease',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: '12px',
+                                flexWrap: 'wrap',
+                              }}
+                            >
+                              <div style={{ flex: 1, minWidth: '180px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <strong style={{
+                                    fontSize: '0.94rem',
+                                    color: isTaken ? '#10b981' : 'var(--heading-color)',
+                                    textDecoration: isTaken ? 'line-through' : 'none',
+                                  }}>
+                                    {p.medication_name}
+                                  </strong>
+                                  {p.dosage && (
+                                    <span style={{
+                                      padding: '1px 6px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 700,
+                                      background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6',
+                                    }}>
+                                      {p.dosage}
+                                    </span>
+                                  )}
+                                  {/* Days Left Badge */}
+                                  <span style={{
+                                    padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                                    background: daysLeft <= 2 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(14, 165, 233, 0.12)',
+                                    color: daysLeft <= 2 ? '#ef4444' : '#0ea5e9',
+                                    border: daysLeft <= 2 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(14, 165, 233, 0.3)',
+                                    display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                  }}>
+                                    <CalendarDays size={11} /> {daysLeft} day{daysLeft !== 1 ? 's' : ''} left
+                                  </span>
+                                </div>
 
-                            <div style={{
-                              width: '24px', height: '24px', borderRadius: '6px',
-                              border: isTaken ? 'none' : '2px solid var(--border-subtle)',
-                              background: isTaken ? '#10b981' : 'transparent',
-                              display: 'grid', placeItems: 'center', color: '#fff',
-                            }}>
-                              {isTaken && <CheckCircle2 size={16} />}
+                                {p.instructions && (
+                                  <p style={{ margin: '3px 0 0', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                                    Instruction: {p.instructions}
+                                  </p>
+                                )}
+
+                                <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                                  Dr. {p.doctor || 'Attending Physician'}
+                                </p>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleTaken(p.id, slot.id, p.duration)}
+                                style={{
+                                  padding: '8px 14px', borderRadius: '8px',
+                                  border: isTaken ? 'none' : '1px solid rgba(139, 92, 246, 0.3)',
+                                  background: isTaken ? '#10b981' : 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                                  color: '#fff',
+                                  fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
+                                  display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0,
+                                  transition: 'all 0.15s ease',
+                                  boxShadow: isTaken ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.25)',
+                                }}
+                              >
+                                {isTaken ? (
+                                  <>
+                                    <CheckCircle2 size={14} /> Taken ({daysLeft} left)
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check size={14} /> Mark Taken
+                                  </>
+                                )}
+                              </button>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 );
@@ -351,7 +584,7 @@ const PatientPrescriptions = () => {
             <Search size={16} color="var(--text-muted)" />
             <input
               type="text"
-              placeholder="Search by medication name or prescribing doctor…"
+              placeholder="Search by medication name, dosage, or prescribing doctor…"
               value={search}
               onChange={e => setSearch(e.target.value)}
               style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--text-main)', fontSize: '0.9rem' }}
@@ -369,84 +602,139 @@ const PatientPrescriptions = () => {
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-              {filtered.map((p, i) => (
-                <div key={p.id || i} style={{
-                  padding: '20px 22px', borderRadius: '18px',
-                  background: 'var(--bg-glass-card)',
-                  border: '1px solid rgba(139,92,246,0.2)',
-                  position: 'relative', overflow: 'hidden',
-                  display: 'flex', flexDirection: 'column',
-                  backdropFilter: 'blur(20px)',
-                }}>
-                  <div style={{
-                    position: 'absolute', top: 0, left: 0, right: 0, height: '3px',
-                    background: 'linear-gradient(90deg, #8b5cf6, #a78bfa)',
-                  }} />
+              {filtered.map((p, i) => {
+                const timings = getPrescriptionTimings(p);
+                const remainingDaysList = timings.map(t => getDaysLeft(p.id, t, p.duration));
+                const minDaysLeft = remainingDaysList.length > 0 ? Math.min(...remainingDaysList) : (parseInt(p.duration, 10) || 5);
+                const isCompleted = remainingDaysList.length > 0 && remainingDaysList.every(d => d <= 0);
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{
-                        width: 40, height: 40, borderRadius: '10px',
-                        background: 'rgba(139,92,246,0.15)', display: 'grid', placeItems: 'center',
-                      }}>
-                        <Pill size={18} color="#8b5cf6" />
+                return (
+                  <div key={p.id || i} style={{
+                    padding: '20px 22px', borderRadius: '18px',
+                    background: 'var(--bg-glass-card)',
+                    border: '1px solid rgba(139,92,246,0.2)',
+                    position: 'relative', overflow: 'hidden',
+                    display: 'flex', flexDirection: 'column',
+                    backdropFilter: 'blur(20px)',
+                  }}>
+                    <div style={{
+                      position: 'absolute', top: 0, left: 0, right: 0, height: '3px',
+                      background: 'linear-gradient(90deg, #8b5cf6, #a78bfa)',
+                    }} />
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: 40, height: 40, borderRadius: '10px',
+                          background: 'rgba(139,92,246,0.15)', display: 'grid', placeItems: 'center',
+                        }}>
+                          <Pill size={18} color="#8b5cf6" />
+                        </div>
+                        <div>
+                          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                            {p.medication_name}
+                          </h3>
+                          {p.dosage && (
+                            <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#8b5cf6', fontWeight: 700 }}>{p.dosage}</p>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--heading-color)' }}>
-                          {p.medication_name}
-                        </h3>
-                        {p.dosage && (
-                          <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#8b5cf6', fontWeight: 700 }}>{p.dosage}</p>
-                        )}
-                      </div>
+
+                      {isCompleted ? (
+                        <span style={{
+                          padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                          background: 'rgba(16, 185, 129, 0.12)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)',
+                          display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        }}>
+                          <CheckCircle2 size={12} /> Course Completed
+                        </span>
+                      ) : (
+                        <span style={{
+                          padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                          background: minDaysLeft <= 2 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(14, 165, 233, 0.12)',
+                          color: minDaysLeft <= 2 ? '#ef4444' : '#0ea5e9',
+                          border: minDaysLeft <= 2 ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(14, 165, 233, 0.25)',
+                          display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        }}>
+                          <CalendarDays size={12} /> {minDaysLeft} Day{minDaysLeft !== 1 ? 's' : ''} Left
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Prescribed Dosing Timings Badges */}
+                    <div style={{ marginBottom: '12px' }}>
+                      <span style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
+                        PRESCRIBED MEAL TIMINGS:
+                      </span>
+                      {timings.length === 0 ? (
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>As directed by doctor</span>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {timings.map(t => {
+                            const timingDaysLeft = getDaysLeft(p.id, t, p.duration);
+                            return (
+                              <span
+                                key={t}
+                                style={{
+                                  padding: '3px 8px', borderRadius: '6px', fontSize: '0.74rem', fontWeight: 700,
+                                  background: t.toLowerCase().includes('dinner')
+                                    ? 'rgba(99, 102, 241, 0.12)'
+                                    : t.toLowerCase().includes('lunch')
+                                    ? 'rgba(14, 165, 233, 0.12)'
+                                    : 'rgba(245, 158, 11, 0.12)',
+                                  color: t.toLowerCase().includes('dinner')
+                                    ? '#6366f1'
+                                    : t.toLowerCase().includes('lunch')
+                                    ? '#0ea5e9'
+                                    : '#f59e0b',
+                                  border: '1px solid rgba(0,0,0,0.06)',
+                                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                }}
+                              >
+                                {t} ({timingDaysLeft}d left)
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                      {p.instructions && (
+                        <p style={{
+                          margin: '4px 0 0', padding: '8px 12px', borderRadius: '8px',
+                          fontSize: '0.82rem', color: 'var(--text-muted)',
+                          background: 'var(--surface-hover)',
+                        }}>
+                          <strong>Instructions:</strong> {p.instructions}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Refill Button & Doctor info */}
+                    <div style={{
+                      marginTop: '16px', paddingTop: '12px',
+                      borderTop: '1px solid var(--border-subtle)',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    }}>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        Dr. {p.doctor} {p.department && `• ${p.department}`}
+                      </span>
+                      <button
+                        onClick={() => openRefillModal(p)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '5px',
+                          padding: '6px 12px', borderRadius: '8px',
+                          background: 'rgba(139, 92, 246, 0.12)', border: '1px solid rgba(139, 92, 246, 0.3)',
+                          color: '#8b5cf6', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        <RotateCw size={13} /> Request Refill
+                      </button>
                     </div>
                   </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
-                    {p.frequency && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-                        <Clock size={14} /> Frequency: {p.frequency}
-                      </div>
-                    )}
-                    {p.duration && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-                        <Calendar size={14} /> Course Duration: {p.duration}
-                      </div>
-                    )}
-                    {p.instructions && (
-                      <p style={{
-                        margin: '6px 0 0', padding: '8px 12px', borderRadius: '8px',
-                        fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic',
-                        background: 'var(--surface-hover)',
-                      }}>
-                        {p.instructions}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Refill Button & Doctor info */}
-                  <div style={{
-                    marginTop: '16px', paddingTop: '12px',
-                    borderTop: '1px solid var(--border-subtle)',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  }}>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      Dr. {p.doctor}
-                    </span>
-                    <button
-                      onClick={() => openRefillModal(p)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: '5px',
-                        padding: '6px 12px', borderRadius: '8px',
-                        background: 'rgba(139, 92, 246, 0.12)', border: '1px solid rgba(139, 92, 246, 0.3)',
-                        color: '#8b5cf6', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
-                      }}
-                    >
-                      <RotateCw size={13} /> Request Refill
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

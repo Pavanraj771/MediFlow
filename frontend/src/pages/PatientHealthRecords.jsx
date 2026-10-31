@@ -154,7 +154,11 @@ const ConsultationCard = ({ appointment }) => {
                   }}>
                     <p style={{ margin: 0, fontWeight: 700, color: 'var(--heading-color)' }}>{p.medication_name}</p>
                     <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                      {[p.dosage, p.frequency, p.duration].filter(Boolean).join(' · ')}
+                      {[
+                        p.dosage,
+                        p.frequency,
+                        p.duration ? (String(p.duration).toLowerCase().includes('day') ? p.duration : `${p.duration} days`) : ''
+                      ].filter(Boolean).join(' · ')}
                     </p>
                     {p.instructions && (
                       <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>{p.instructions}</p>

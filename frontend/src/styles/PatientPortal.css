@@ -256,31 +256,82 @@
 
 .patient-secondary-button {
   display: inline-flex;
-  min-height: 44px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
   gap: 8px;
   padding: 0 16px;
-  color: var(--text-primary, #e2e8f0);
-  background: var(--surface-card, rgba(30, 41, 59, 0.6));
+  color: var(--text-main, #e2e8f0);
+  background: var(--surface-input, rgba(255, 255, 255, 0.06));
   border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
-  border-radius: 13px;
+  border-radius: 12px;
   font: inherit;
   font-size: 0.83rem;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+  transition: all 150ms ease;
 }
 
 .patient-secondary-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.1));
+  border-color: var(--border-highlight, rgba(255, 255, 255, 0.25));
+  color: var(--text-main, #e2e8f0);
 }
 
 .patient-secondary-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Danger / Destructive Action Button (Remove Slot & Cancel Appointment) */
+.btn-danger-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  min-height: 36px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-danger-action:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #f87171;
+  transform: translateY(-1px);
+}
+
+.btn-danger-action:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-danger-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+:root[data-theme="light"] .btn-danger-action,
+[data-theme="light"] .btn-danger-action {
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+  border: 1px solid #fecaca !important;
+  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.06);
+}
+
+:root[data-theme="light"] .btn-danger-action:hover:not(:disabled),
+[data-theme="light"] .btn-danger-action:hover:not(:disabled) {
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+  border-color: #f87171 !important;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.15);
 }
 
 .patient-profile-actions {

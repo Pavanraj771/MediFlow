@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  ShieldAlert, ArrowLeft, PhoneCall, HeartPulse, User,
-  Printer, Edit3, CheckCircle2, AlertTriangle, Droplet,
+  ShieldAlert, ArrowLeft, HeartPulse, User,
+  Edit3, CheckCircle2, AlertTriangle, Droplet,
   Activity, Pill, X, Sparkles, ExternalLink
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -96,10 +96,6 @@ const PatientEmergencyID = () => {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
-
   // Construct QR Payload text
   const qrPayload = JSON.stringify({
     mediflow_emergency_id: user?.id,
@@ -156,19 +152,6 @@ const PatientEmergencyID = () => {
             }}
           >
             <Edit3 size={15} /> Edit Emergency Info
-          </button>
-          <button
-            onClick={handlePrint}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              padding: '9px 16px', borderRadius: '12px',
-              background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-              color: '#fff', border: 'none', cursor: 'pointer',
-              fontSize: '0.86rem', fontWeight: 700,
-              boxShadow: '0 4px 14px rgba(239, 68, 68, 0.25)',
-            }}
-          >
-            <Printer size={15} /> Print / Save Pass
           </button>
           <PatientAvatarMenu />
         </div>
@@ -285,13 +268,15 @@ const PatientEmergencyID = () => {
                 <a
                   href={`tel:${profile.emergency_contact_phone}`}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
+                    display: 'flex', alignItems: 'center',
                     padding: '8px 14px', borderRadius: '10px',
-                    background: '#22c55e', color: '#fff', textDecoration: 'none',
+                    background: 'rgba(34, 197, 94, 0.2)', border: '1px solid rgba(34, 197, 94, 0.4)',
+                    color: '#86efac', textDecoration: 'none',
                     fontSize: '0.84rem', fontWeight: 800,
                   }}
+                  title="Emergency phone number"
                 >
-                  <PhoneCall size={14} /> Call Now
+                  {profile.emergency_contact_phone}
                 </a>
               )}
             </div>

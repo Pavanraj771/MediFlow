@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import PatientAvatarMenu from './PatientAvatarMenu';
+import PatientNotificationBell from './PatientNotificationBell';
 import DoctorAvatarMenu from './DoctorAvatarMenu';
 import AdminAvatarMenu from './AdminAvatarMenu';
 import {
@@ -191,7 +192,12 @@ export const Navbar = () => {
                 </div>
               </div>
 
-              {user?.role === 'PATIENT' && <PatientAvatarMenu size={40} />}
+              {user?.role === 'PATIENT' && (
+                <>
+                  <PatientNotificationBell />
+                  <PatientAvatarMenu size={40} />
+                </>
+              )}
               {user?.role === 'DOCTOR' && <DoctorAvatarMenu size={40} />}
               {user?.role === 'ADMIN' && <AdminAvatarMenu size={40} />}
             </>

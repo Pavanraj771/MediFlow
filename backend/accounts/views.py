@@ -613,6 +613,22 @@ class HospitalBroadcastViewSet(viewsets.ModelViewSet):
             f"Hospital alert posted: '{broadcast.title}' ({broadcast.alert_level}).",
             "INFO"
         )
+        try:
+            from appointments.models import Notification, NotificationType
+            patients = User.objects.filter(role=UserRole.PATIENT, is_active=True)
+            notifications = [
+                Notification(
+                    recipient=p,
+                    title=f"Hospital Notice: {broadcast.title}",
+                    message=broadcast.message,
+                    notification_type=NotificationType.ADMIN_BROADCAST,
+                    related_id=str(broadcast.id),
+                )
+                for p in patients
+            ]
+            Notification.objects.bulk_create(notifications)
+        except Exception:
+            pass
 
     def perform_update(self, serializer):
         if self.request.user.role != UserRole.ADMIN:

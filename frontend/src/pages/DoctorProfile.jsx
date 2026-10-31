@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Stethoscope, Save, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Stethoscope, Save, CheckCircle2, AlertCircle, Star } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { authService, appointmentsService } from '../services/api';
 import '../styles/PatientPortal.css';
@@ -33,6 +33,9 @@ const DoctorProfile = () => {
   const [profileForm, setProfileForm] = useState({
     department: '', consultation_fee: '', bio: '', license_number: '', years_experience: '',
   });
+  const [doctorRating, setDoctorRating] = useState(null);
+  const [doctorReviewCount, setDoctorReviewCount] = useState(0);
+  const [reviews, setReviews] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,7 +58,13 @@ const DoctorProfile = () => {
         license_number: prof.license_number || '',
         years_experience: prof.years_experience || '',
       });
+      setDoctorRating(prof.average_rating ?? null);
+      setDoctorReviewCount(prof.review_count || 0);
     }).catch(console.error).finally(() => setLoading(false));
+
+    appointmentsService.getDoctorReviews()
+      .then(res => setReviews(Array.isArray(res) ? res : res.results || []))
+      .catch(console.error);
   }, [user]);
 
   const showSaved = (section) => {
@@ -138,13 +147,28 @@ const DoctorProfile = () => {
           <div>
             <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800 }}>Dr. {user?.full_name}</h2>
             <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>{user?.email}</p>
-            {profileForm.department && (
-              <span style={{
-                display: 'inline-block', marginTop: '6px', padding: '3px 10px',
-                borderRadius: '999px', fontSize: '0.75rem', fontWeight: 700,
-                background: 'rgba(16,185,129,0.12)', color: '#10b981',
-              }}>{DEPT_OPTIONS.find(d => d.value === profileForm.department)?.label || profileForm.department}</span>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+              {profileForm.department && (
+                <span style={{
+                  padding: '3px 10px',
+                  borderRadius: '999px', fontSize: '0.75rem', fontWeight: 700,
+                  background: 'rgba(16,185,129,0.12)', color: '#10b981',
+                }}>
+                  {DEPT_OPTIONS.find(d => d.value === profileForm.department)?.label || profileForm.department}
+                </span>
+              )}
+              {doctorRating !== null && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  padding: '3px 10px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 700,
+                  background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)',
+                  color: '#f59e0b',
+                }}>
+                  <Star size={12} fill="#f59e0b" color="#f59e0b" />
+                  <span>{doctorRating > 0 ? `${doctorRating.toFixed(1)} ★ (${doctorReviewCount} reviews)` : 'No reviews yet'}</span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -219,6 +243,75 @@ const DoctorProfile = () => {
           </button>
         </div>
       </form>
+
+      {/* Patient Reviews Card */}
+      <div className="patient-profile-card" style={{ marginTop: '20px' }}>
+        <div className="patient-profile-card__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <h2>Patient Reviews & Ratings</h2>
+            <p>Verified feedback submitted by patients after completed consultations.</p>
+          </div>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: '6px',
+            padding: '6px 14px', borderRadius: '999px',
+            background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)',
+            color: '#f59e0b', fontWeight: 700, fontSize: '0.88rem'
+          }}>
+            <Star size={15} fill="#f59e0b" color="#f59e0b" />
+            <span>{doctorRating !== null ? `${doctorRating.toFixed(1)} / 5.0` : 'No ratings'}</span>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              ({doctorReviewCount || reviews.length} {((doctorReviewCount || reviews.length) === 1) ? 'review' : 'reviews'})
+            </span>
+          </div>
+        </div>
+
+        {reviews.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-muted)' }}>
+            <Star size={36} style={{ opacity: 0.25, margin: '0 auto 10px' }} />
+            <p style={{ margin: 0, fontSize: '0.9rem' }}>No patient reviews yet.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
+            {reviews.map((rev) => (
+              <div
+                key={rev.id}
+                style={{
+                  padding: '14px 18px', borderRadius: '12px',
+                  background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)',
+                  display: 'flex', flexDirection: 'column', gap: '6px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <strong style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                    {rev.patient_name || 'Verified Patient'}
+                  </strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        size={14}
+                        fill={s <= rev.rating ? '#f59e0b' : 'transparent'}
+                        color={s <= rev.rating ? '#f59e0b' : '#cbd5e1'}
+                      />
+                    ))}
+                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f59e0b', marginLeft: '4px' }}>
+                      {rev.rating}/5
+                    </span>
+                  </div>
+                </div>
+                {rev.comment && (
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-main)', fontStyle: 'italic' }}>
+                    "{rev.comment}"
+                  </p>
+                )}
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {rev.created_at ? new Date(rev.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

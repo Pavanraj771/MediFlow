@@ -34,7 +34,16 @@ const SectionTitle = ({ icon: Icon, label, color = '#10b981' }) => (
   </div>
 );
 
-const emptyPrescription = () => ({ medication_name: '', dosage: '', frequency: '', duration: '', instructions: '' });
+const FREQUENCY_OPTIONS = [
+  'Before Breakfast',
+  'After Breakfast',
+  'Before Lunch',
+  'After Lunch',
+  'Before Dinner',
+  'After Dinner',
+];
+
+const emptyPrescription = () => ({ medication_name: '', dosage: '', frequency: [], duration: '', instructions: '' });
 
 const DoctorConsultation = () => {
   const { appointmentId } = useParams();
@@ -104,13 +113,26 @@ const DoctorConsultation = () => {
             });
           }
           if (c.prescriptions?.length > 0) {
-            setPrescriptions(c.prescriptions.map(p => ({
-              medication_name: p.medication_name || '',
-              dosage: p.dosage || '',
-              frequency: p.frequency || '',
-              duration: p.duration || '',
-              instructions: p.instructions || '',
-            })));
+            setPrescriptions(c.prescriptions.map(p => {
+              let freqArray = [];
+              if (Array.isArray(p.frequency)) {
+                freqArray = p.frequency;
+              } else if (typeof p.frequency === 'string' && p.frequency.trim()) {
+                freqArray = p.frequency.split(',').map(s => s.trim()).filter(Boolean);
+              }
+              let durVal = '';
+              if (p.duration !== undefined && p.duration !== null) {
+                const num = String(p.duration).match(/\d+/);
+                durVal = num ? num[0] : String(p.duration);
+              }
+              return {
+                medication_name: p.medication_name || '',
+                dosage: p.dosage || '',
+                frequency: freqArray,
+                duration: durVal,
+                instructions: p.instructions || '',
+              };
+            }));
           }
         }
       } catch (err) {
@@ -127,6 +149,18 @@ const DoctorConsultation = () => {
 
   const handlePrescriptionChange = (index, key, value) => {
     setPrescriptions(prev => prev.map((p, i) => i === index ? { ...p, [key]: value } : p));
+  };
+
+  const toggleFrequencyOption = (prescriptionIndex, option) => {
+    setPrescriptions(prev => prev.map((p, i) => {
+      if (i !== prescriptionIndex) return p;
+      const currentList = Array.isArray(p.frequency) ? p.frequency : [];
+      const exists = currentList.includes(option);
+      const updated = exists
+        ? currentList.filter(item => item !== option)
+        : [...currentList, option];
+      return { ...p, frequency: updated };
+    }));
   };
 
   const addPrescription = () => setPrescriptions(prev => [...prev, emptyPrescription()]);
@@ -157,7 +191,13 @@ const DoctorConsultation = () => {
     const hasVitals = Object.values(cleanVitals).some(v => v !== null);
 
     // Clean prescriptions
-    const cleanPrescriptions = prescriptions.filter(p => p.medication_name.trim());
+    const cleanPrescriptions = prescriptions
+      .filter(p => p.medication_name.trim())
+      .map(p => ({
+        ...p,
+        frequency: Array.isArray(p.frequency) ? p.frequency.join(', ') : (p.frequency || ''),
+        duration: p.duration ? String(parseInt(p.duration, 10) || p.duration) : '',
+      }));
 
     const payload = {
       symptoms,
@@ -376,22 +416,85 @@ const DoctorConsultation = () => {
                     />
                   </label>
                   <label style={labelStyle}>
-                    Frequency
-                    <input type="text" placeholder="e.g. Twice daily"
-                      value={p.frequency} onChange={e => handlePrescriptionChange(i, 'frequency', e.target.value)}
+                    Duration (in Days) *
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="e.g. 5"
+                      value={p.duration}
+                      onChange={e => {
+                        const val = e.target.value.replace(/[^0-9]/g, '');
+                        handlePrescriptionChange(i, 'duration', val);
+                      }}
                       style={inputStyle}
                     />
                   </label>
-                  <label style={labelStyle}>
-                    Duration
-                    <input type="text" placeholder="e.g. 7 days"
-                      value={p.duration} onChange={e => handlePrescriptionChange(i, 'duration', e.target.value)}
-                      style={inputStyle}
-                    />
-                  </label>
+
+                  {/* Dosing Frequency - 6 Meal Timing Options (Multi-select) */}
+                  <div style={{ ...labelStyle, gridColumn: '1 / -1' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>Dosing Frequency (Select when to take medication) *</span>
+                      {Array.isArray(p.frequency) && p.frequency.length > 0 && (
+                        <span style={{ fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 700 }}>
+                          {p.frequency.length} timing{p.frequency.length !== 1 ? 's' : ''} selected
+                        </span>
+                      )}
+                    </span>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                      gap: '8px',
+                      marginTop: '4px',
+                    }}>
+                      {FREQUENCY_OPTIONS.map(opt => {
+                        const isSelected = Array.isArray(p.frequency) && p.frequency.includes(opt);
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => toggleFrequencyOption(i, opt)}
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              fontSize: '0.82rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              border: isSelected
+                                ? '1.5px solid #8b5cf6'
+                                : '1px solid var(--border-subtle)',
+                              background: isSelected
+                                ? 'rgba(139, 92, 246, 0.15)'
+                                : 'var(--surface-input)',
+                              color: isSelected
+                                ? '#8b5cf6'
+                                : 'var(--text-main)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px',
+                              transition: 'all 0.15s ease',
+                              textAlign: 'center',
+                            }}
+                          >
+                            <span style={{
+                              width: '14px', height: '14px', borderRadius: '4px',
+                              border: isSelected ? 'none' : '1.5px solid var(--border-subtle)',
+                              background: isSelected ? '#8b5cf6' : 'transparent',
+                              display: 'grid', placeItems: 'center', color: '#fff', fontSize: '10px',
+                            }}>
+                              {isSelected && '✓'}
+                            </span>
+                            {opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <label style={{ ...labelStyle, gridColumn: '1 / -1' }}>
                     Special Instructions
-                    <input type="text" placeholder="e.g. Take after meals, avoid alcohol"
+                    <input type="text" placeholder="e.g. Take with warm water, avoid milk"
                       value={p.instructions} onChange={e => handlePrescriptionChange(i, 'instructions', e.target.value)}
                       style={inputStyle}
                     />

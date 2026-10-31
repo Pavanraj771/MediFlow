@@ -67,6 +67,7 @@ class DoctorSchedule(models.Model):
         (3, 'Thursday'), (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday'),
     ]
     doctor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='schedules')
+    date = models.DateField(null=True, blank=True)
     day_of_week = models.IntegerField(choices=DAY_CHOICES)
     start_time = models.TimeField()
     end_time = models.TimeField()
@@ -74,7 +75,12 @@ class DoctorSchedule(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ['day_of_week', 'start_time']
+        ordering = ['date', 'day_of_week', 'start_time']
+
+    def save(self, *args, **kwargs):
+        if self.date is not None and self.day_of_week is None:
+            self.day_of_week = self.date.weekday()
+        super().save(*args, **kwargs)
 
 # ── Doctor Leave ──────────────────────────────────────────────────────────────
 class DoctorLeave(models.Model):
@@ -98,6 +104,8 @@ class Appointment(models.Model):
     duration_minutes = models.IntegerField(default=30)
     status = models.CharField(max_length=20, choices=AppointmentStatus.choices, default=AppointmentStatus.SCHEDULED)
     reason_for_visit = models.TextField(blank=True)
+    cancellation_reason = models.TextField(blank=True, default='')
+    cancelled_by_role = models.CharField(max_length=20, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -261,3 +269,49 @@ class PrescriptionRefill(models.Model):
 
     def __str__(self):
         return f"Refill for {self.prescription.medication_name} ({self.status})"
+
+
+# ── Notification ──────────────────────────────────────────────────────────────
+class NotificationType(models.TextChoices):
+    WELCOME = "WELCOME", "Welcome Message"
+    APPOINTMENT_SCHEDULED = "APPOINTMENT_SCHEDULED", "Appointment Scheduled"
+    APPOINTMENT_CANCELLED = "APPOINTMENT_CANCELLED", "Appointment Cancelled"
+    APPOINTMENT_COMPLETED = "APPOINTMENT_COMPLETED", "Appointment Completed"
+    APPOINTMENT_REMINDER = "APPOINTMENT_REMINDER", "30-Min Reminder"
+    ADMIN_BROADCAST = "ADMIN_BROADCAST", "Admin Announcement"
+    GENERAL = "GENERAL", "General Notification"
+
+
+class Notification(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    notification_type = models.CharField(max_length=30, choices=NotificationType.choices, default=NotificationType.GENERAL)
+    related_id = models.CharField(max_length=100, blank=True, default='')
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.notification_type}] {self.title} to {self.recipient.email}"
+
+
+# ── Doctor Review & Rating ───────────────────────────────────────────────────
+class DoctorReview(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    patient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='doctor_reviews_given')
+    doctor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='doctor_reviews_received')
+    appointment = models.OneToOneField('Appointment', on_delete=models.CASCADE, related_name='review')
+    rating = models.PositiveSmallIntegerField(help_text='Rating from 1 to 5')
+    comment = models.TextField(blank=True, default='', help_text='Patient review comments')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Review for Dr. {self.doctor.full_name} by {self.patient.full_name}: {self.rating} stars"
