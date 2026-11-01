@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronUp, CalendarCheck, Clock,
   Pill, Thermometer, Activity, Weight, Droplets, Ruler,
   FileText, Stethoscope, User, AlertCircle, ShieldAlert,
-  Calendar, CheckCircle2, ChevronRight, Star
+  Calendar, CheckCircle2, ChevronRight, Star, MessageSquare
 } from 'lucide-react';
 import { appointmentsService } from '../services/api';
 import '../styles/PatientPortal.css';
@@ -156,6 +156,21 @@ const DoctorPatientDetail = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <Link
+              to={`/doctor/messages?patientId=${patient.id}`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '10px 16px', borderRadius: '12px',
+                background: 'rgba(14, 165, 233, 0.12)', color: '#0ea5e9',
+                border: '1px solid rgba(14, 165, 233, 0.3)',
+                fontWeight: 700, fontSize: '0.84rem', textDecoration: 'none',
+              }}
+              title="Send direct follow-up message to this patient"
+            >
+              <MessageSquare size={16} />
+              <span>Message Patient</span>
+            </Link>
+
             <div style={{
               padding: '10px 16px', borderRadius: '12px', background: 'var(--surface-hover)',
               border: '1px solid var(--border-subtle)', textAlign: 'center',

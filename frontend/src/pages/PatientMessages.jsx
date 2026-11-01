@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   MessageSquare, Send, ShieldAlert, ArrowLeft, Stethoscope,
-  Check, CheckCheck, Clock, User, Sparkles, RefreshCw, AlertCircle
+  Check, CheckCheck, Clock, User, Sparkles, RefreshCw, AlertCircle,
+  Search, Calendar, CalendarDays, ExternalLink
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { appointmentsService } from '../services/api';
@@ -14,14 +15,21 @@ const quickPrompts = [
   'Experiencing mild symptoms after medication',
   'When should I expect my lab test results?',
   'Feeling much better, thank you doctor!',
+  'Can I resume normal physical exercise?',
+  'Need advice on diet restrictions',
 ];
 
 const PatientMessages = () => {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const doctorIdParam = searchParams.get('doctorId');
+  const appointmentIdParam = searchParams.get('appointmentId');
+
   const [conversations, setConversations] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [doctorSearch, setDoctorSearch] = useState('');
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
@@ -33,35 +41,115 @@ const PatientMessages = () => {
     if (!silent) setLoadingConversations(true);
     try {
       const convList = await appointmentsService.getConversations();
-      
-      // Also get doctors from appointments so patient can start a chat with their doctor
-      const appts = await appointmentsService.getAppointments();
-      const doctorsFromAppts = [];
-      const seen = new Set(convList.map(c => c.user_id));
 
-      appts.forEach(apt => {
+      // Also get doctors from appointments so patient can start a chat with their doctor
+      let appts = [];
+      try {
+        appts = await appointmentsService.getAppointments();
+      } catch {
+        appts = [];
+      }
+
+      // Also get registered doctors list if needed
+      let allDocs = [];
+      try {
+        allDocs = await appointmentsService.getDoctors();
+      } catch {
+        allDocs = [];
+      }
+
+      const combinedMap = new Map();
+
+      // 1. Existing conversations
+      convList.forEach((c) => {
+        combinedMap.set(String(c.user_id), { ...c });
+      });
+
+      // 2. Doctors from appointments
+      appts.forEach((apt) => {
         const doc = apt.doctor_details;
-        if (doc && !seen.has(String(doc.id))) {
-          seen.add(String(doc.id));
-          doctorsFromAppts.push({
-            user_id: String(doc.id),
-            full_name: doc.full_name,
-            email: doc.email,
-            role: 'DOCTOR',
-            department: apt.doctor_profile?.department || 'Specialist',
-            unread_count: 0,
-            last_message: 'Start follow-up consultation chat',
-            last_message_at: null,
-            appointment_id: apt.id,
-          });
+        if (doc) {
+          const docId = String(doc.id);
+          if (!combinedMap.has(docId)) {
+            combinedMap.set(docId, {
+              user_id: docId,
+              full_name: doc.full_name,
+              email: doc.email,
+              role: 'DOCTOR',
+              department: apt.doctor_profile?.department || 'Specialist',
+              unread_count: 0,
+              last_message: 'Start follow-up consultation chat',
+              last_message_at: null,
+              appointment_id: apt.id,
+            });
+          } else {
+            // attach appointment_id if not present
+            const existing = combinedMap.get(docId);
+            if (!existing.appointment_id) {
+              existing.appointment_id = apt.id;
+            }
+          }
         }
       });
 
-      const combined = [...convList, ...doctorsFromAppts];
+      // 3. Doctors from directory
+      allDocs.forEach((d) => {
+        const docUser = d.user;
+        if (docUser) {
+          const docId = String(docUser.id);
+          if (!combinedMap.has(docId)) {
+            combinedMap.set(docId, {
+              user_id: docId,
+              full_name: docUser.full_name,
+              email: docUser.email,
+              role: 'DOCTOR',
+              department: d.department || 'Physician',
+              unread_count: 0,
+              last_message: 'Start consultation follow-up',
+              last_message_at: null,
+              appointment_id: null,
+            });
+          }
+        }
+      });
+
+      const combined = Array.from(combinedMap.values());
+      // Sort: conversations with messages first, then by last message time
+      combined.sort((a, b) => {
+        if (a.last_message_at && b.last_message_at) {
+          return new Date(b.last_message_at) - new Date(a.last_message_at);
+        }
+        if (a.last_message_at) return -1;
+        if (b.last_message_at) return 1;
+        return a.full_name.localeCompare(b.full_name);
+      });
+
       setConversations(combined);
 
-      // Auto-select first conversation if none selected
-      if (!selectedUser && combined.length > 0) {
+      // Select matching doctor from URL param if available
+      if (doctorIdParam) {
+        const found = combined.find((c) => String(c.user_id) === String(doctorIdParam));
+        if (found) {
+          if (appointmentIdParam) found.appointment_id = appointmentIdParam;
+          setSelectedUser(found);
+        } else {
+          // If not in combined list yet, try to find in allDocs or fallback
+          const docObj = allDocs.find((d) => String(d.user?.id) === String(doctorIdParam) || String(d.id) === String(doctorIdParam));
+          const newDocEntry = {
+            user_id: String(docObj?.user?.id || doctorIdParam),
+            full_name: docObj?.user?.full_name || 'Doctor',
+            email: docObj?.user?.email || '',
+            role: 'DOCTOR',
+            department: docObj?.department || 'Consultant',
+            unread_count: 0,
+            last_message: 'Start follow-up consultation chat',
+            last_message_at: null,
+            appointment_id: appointmentIdParam || null,
+          };
+          setConversations((prev) => [newDocEntry, ...prev.filter((p) => p.user_id !== newDocEntry.user_id)]);
+          setSelectedUser(newDocEntry);
+        }
+      } else if (!selectedUser && combined.length > 0) {
         setSelectedUser(combined[0]);
       }
     } catch (err) {
@@ -74,7 +162,7 @@ const PatientMessages = () => {
 
   useEffect(() => {
     loadConversations();
-  }, []);
+  }, [doctorIdParam, appointmentIdParam]);
 
   // Poll for messages when selectedUser is set
   const loadMessages = async (userId, silent = false) => {
@@ -99,7 +187,7 @@ const PatientMessages = () => {
       loadMessages(selectedUser.user_id);
       const interval = setInterval(() => {
         loadMessages(selectedUser.user_id, true);
-      }, 4000);
+      }, 3500);
       return () => clearInterval(interval);
     }
   }, [selectedUser?.user_id]);
@@ -126,9 +214,16 @@ const PatientMessages = () => {
       loadConversations(true);
     } catch (err) {
       console.error('Send message failed:', err);
-      alert('Failed to send message. Please try again.');
+      alert('Failed to send message. Please verify your connection and try again.');
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
   };
 
@@ -142,13 +237,26 @@ const PatientMessages = () => {
     const d = new Date(iso);
     const today = new Date();
     if (d.toDateString() === today.toDateString()) return 'Today';
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
     return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
   };
+
+  const filteredConversations = conversations.filter((conv) => {
+    if (!doctorSearch.trim()) return true;
+    const q = doctorSearch.toLowerCase();
+    return (
+      conv.full_name?.toLowerCase().includes(q) ||
+      conv.department?.toLowerCase().includes(q) ||
+      conv.email?.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="patient-portal-page">
       {/* Top bar navigation */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <Link
             to="/patient"
@@ -192,18 +300,18 @@ const PatientMessages = () => {
         <ShieldAlert size={20} style={{ flexShrink: 0 }} />
         <span>
           <strong>Emergency Safety Disclaimer:</strong> This portal is for non-urgent post-consultation inquiries only.
-          If you are experiencing chest pain, difficulty breathing, or severe sudden symptoms, please call <strong>911</strong> immediately or proceed to the nearest emergency department.
+          If you are experiencing chest pain, difficulty breathing, or severe sudden symptoms, please call <strong>112 / 911</strong> immediately or proceed to the nearest emergency room.
         </span>
       </div>
 
       {/* Chat workspace layout */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'minmax(280px, 340px) 1fr',
+        gridTemplateColumns: 'minmax(280px, 350px) 1fr',
         gap: '20px',
-        height: '620px',
+        height: '660px',
       }}>
-        {/* Left Column: Conversations */}
+        {/* Left Column: Conversations List */}
         <div style={{
           background: 'var(--bg-glass-card)',
           borderRadius: '20px',
@@ -214,7 +322,7 @@ const PatientMessages = () => {
           backdropFilter: 'blur(20px)',
           overflow: 'hidden',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Your Care Team ({conversations.length})
             </span>
@@ -224,27 +332,70 @@ const PatientMessages = () => {
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--text-muted)', display: 'grid', placeItems: 'center', padding: '4px',
+                borderRadius: '6px',
               }}
             >
               <RefreshCw size={14} />
             </button>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* Search Care Team Input */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '8px 12px', borderRadius: '10px',
+            background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)',
+            marginBottom: '12px',
+          }}>
+            <Search size={14} color="var(--text-muted)" />
+            <input
+              type="text"
+              placeholder="Search doctor or specialty..."
+              value={doctorSearch}
+              onChange={(e) => setDoctorSearch(e.target.value)}
+              style={{
+                background: 'transparent', border: 'none', outline: 'none',
+                color: 'var(--text-main)', fontSize: '0.82rem', width: '100%',
+              }}
+            />
+            {doctorSearch && (
+              <button
+                type="button"
+                onClick={() => setDoctorSearch('')}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.75rem' }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '2px' }}>
             {loadingConversations ? (
               <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
                 Loading care team contacts...
               </div>
-            ) : conversations.length === 0 ? (
+            ) : filteredConversations.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
                 <Stethoscope size={32} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
-                <p style={{ margin: 0, fontWeight: 600 }}>No conversations yet</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>No doctors found</p>
                 <p style={{ margin: '6px 0 0', fontSize: '0.8rem' }}>
-                  Doctors will appear here after your first consultation or booking.
+                  {doctorSearch ? 'Try a different search term.' : 'Browse the Doctor Directory to connect with physicians.'}
                 </p>
+                {!doctorSearch && (
+                  <Link
+                    to="/patient/doctors"
+                    style={{
+                      display: 'inline-block', marginTop: '12px',
+                      padding: '6px 14px', borderRadius: '8px',
+                      background: 'rgba(14, 165, 233, 0.12)', color: '#0ea5e9',
+                      fontSize: '0.8rem', fontWeight: 700, textDecoration: 'none',
+                    }}
+                  >
+                    View Doctor Directory
+                  </Link>
+                )}
               </div>
             ) : (
-              conversations.map((conv) => {
+              filteredConversations.map((conv) => {
                 const isSelected = selectedUser?.user_id === conv.user_id;
                 return (
                   <div
@@ -261,7 +412,7 @@ const PatientMessages = () => {
                         ? 'rgba(14, 165, 233, 0.12)'
                         : 'var(--surface-hover)',
                       border: isSelected
-                        ? '1px solid rgba(14, 165, 233, 0.35)'
+                        ? '1px solid rgba(14, 165, 233, 0.4)'
                         : '1px solid var(--border-subtle)',
                       transition: 'all 0.15s ease',
                     }}
@@ -290,7 +441,7 @@ const PatientMessages = () => {
                         )}
                       </div>
                       <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: '#10b981', fontWeight: 600 }}>
-                        {conv.department || 'Physician'}
+                        {conv.department ? conv.department.replace('_', ' ') : 'Physician'}
                       </p>
                       <p style={{
                         margin: '3px 0 0', fontSize: '0.76rem', color: 'var(--text-muted)',
@@ -329,27 +480,50 @@ const PatientMessages = () => {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div style={{
-                    width: '40px', height: '40px', borderRadius: '12px',
+                    width: '42px', height: '42px', borderRadius: '12px',
                     background: 'linear-gradient(135deg, #10b981, #059669)',
                     display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 800,
                   }}>
                     <Stethoscope size={20} />
                   </div>
                   <div>
-                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--heading-color)' }}>
                       Dr. {selectedUser.full_name}
                     </h3>
-                    <span style={{ fontSize: '0.78rem', color: '#10b981', fontWeight: 600 }}>
-                      ● Active Care Channel • {selectedUser.department || 'Consultant'}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                      <span style={{ fontSize: '0.78rem', color: '#10b981', fontWeight: 600 }}>
+                        ● Active Care Channel
+                      </span>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        • {selectedUser.department ? selectedUser.department.replace('_', ' ') : 'Consultant'}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <span style={{
-                  fontSize: '0.78rem', padding: '4px 10px', borderRadius: '8px',
-                  background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)',
-                }}>
-                  Follow-up Active
-                </span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {selectedUser.appointment_id && (
+                    <Link
+                      to="/patient/appointments"
+                      style={{
+                        fontSize: '0.78rem', padding: '5px 11px', borderRadius: '8px',
+                        background: 'rgba(14, 165, 233, 0.1)', color: '#0ea5e9',
+                        border: '1px solid rgba(14, 165, 233, 0.25)', textDecoration: 'none',
+                        fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
+                      }}
+                      title="View linked appointment"
+                    >
+                      <CalendarDays size={13} /> Linked Appointment
+                    </Link>
+                  )}
+                  <span style={{
+                    fontSize: '0.78rem', padding: '5px 11px', borderRadius: '8px',
+                    background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)',
+                    fontWeight: 700,
+                  }}>
+                    Follow-up Open
+                  </span>
+                </div>
               </div>
 
               {/* Messages scroll area */}
@@ -366,7 +540,7 @@ const PatientMessages = () => {
                     Loading message history...
                   </div>
                 ) : messages.length === 0 ? (
-                  <div style={{ textAlign: 'center', margin: 'auto', maxWidth: '380px', color: 'var(--text-muted)' }}>
+                  <div style={{ textAlign: 'center', margin: 'auto', maxWidth: '400px', color: 'var(--text-muted)' }}>
                     <div style={{
                       width: '56px', height: '56px', borderRadius: '16px',
                       background: 'rgba(14, 165, 233, 0.12)', color: '#0ea5e9',
@@ -378,61 +552,80 @@ const PatientMessages = () => {
                       Start your consultation follow-up
                     </h4>
                     <p style={{ margin: 0, fontSize: '0.84rem', lineHeight: 1.5 }}>
-                      Have questions regarding your recent appointment, medication guidelines, or lab tests? Send a note directly to Dr. {selectedUser.full_name}.
+                      Have questions regarding your recent consultation, medication guidelines, or lab tests? Send a note directly to Dr. {selectedUser.full_name}.
                     </p>
                   </div>
                 ) : (
-                  messages.map((m) => {
+                  messages.map((m, idx) => {
                     const isMe = String(m.sender) === String(user?.id);
+                    const prevMsg = idx > 0 ? messages[idx - 1] : null;
+                    const showDateSeparator = !prevMsg || new Date(m.created_at).toDateString() !== new Date(prevMsg.created_at).toDateString();
+
                     return (
-                      <div
-                        key={m.id}
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: isMe ? 'flex-end' : 'flex-start',
-                        }}
-                      >
+                      <React.Fragment key={m.id || idx}>
+                        {showDateSeparator && (
+                          <div style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            margin: '12px 0 6px',
+                          }}>
+                            <span style={{
+                              padding: '3px 12px', borderRadius: '12px',
+                              background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)',
+                              fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)',
+                            }}>
+                              {formatDateLabel(m.created_at)}
+                            </span>
+                          </div>
+                        )}
                         <div
                           style={{
-                            maxWidth: '75%',
-                            padding: '12px 16px',
-                            borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                            background: isMe
-                              ? 'linear-gradient(135deg, #0ea5e9, #0284c7)'
-                              : 'var(--surface-hover)',
-                            color: isMe ? '#fff' : 'var(--text-main)',
-                            border: isMe ? 'none' : '1px solid var(--border-subtle)',
-                            boxShadow: isMe ? '0 4px 14px rgba(14, 165, 233, 0.25)' : 'none',
-                            fontSize: '0.9rem',
-                            lineHeight: 1.5,
-                            wordBreak: 'break-word',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: isMe ? 'flex-end' : 'flex-start',
                           }}
                         >
-                          {!isMe && (
-                            <p style={{
-                              margin: '0 0 4px', fontSize: '0.74rem',
-                              color: '#10b981', fontWeight: 800,
-                            }}>
-                              Dr. {selectedUser.full_name}
-                            </p>
-                          )}
-                          <div>{m.content}</div>
+                          <div
+                            style={{
+                              maxWidth: '75%',
+                              padding: '12px 16px',
+                              borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                              background: isMe
+                                ? 'linear-gradient(135deg, #0ea5e9, #0284c7)'
+                                : 'var(--surface-hover)',
+                              color: isMe ? '#ffffff' : 'var(--text-main)',
+                              border: isMe ? 'none' : '1px solid var(--border-subtle)',
+                              boxShadow: isMe ? '0 4px 14px rgba(14, 165, 233, 0.25)' : 'none',
+                              fontSize: '0.9rem',
+                              lineHeight: 1.5,
+                              wordBreak: 'break-word',
+                              whiteSpace: 'pre-wrap',
+                            }}
+                          >
+                            {!isMe && (
+                              <p style={{
+                                margin: '0 0 4px', fontSize: '0.74rem',
+                                color: '#10b981', fontWeight: 800,
+                              }}>
+                                Dr. {selectedUser.full_name}
+                              </p>
+                            )}
+                            <div>{m.content}</div>
+                          </div>
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: '4px',
+                            marginTop: '4px', fontSize: '0.72rem', color: 'var(--text-muted)',
+                          }}>
+                            <span>{formatTime(m.created_at)}</span>
+                            {isMe && (
+                              m.is_read ? (
+                                <CheckCheck size={14} color="#0ea5e9" title="Read by Doctor" />
+                              ) : (
+                                <Check size={14} title="Delivered" />
+                              )
+                            )}
+                          </div>
                         </div>
-                        <div style={{
-                          display: 'flex', alignItems: 'center', gap: '4px',
-                          marginTop: '4px', fontSize: '0.72rem', color: 'var(--text-muted)',
-                        }}>
-                          <span>{formatTime(m.created_at)}</span>
-                          {isMe && (
-                            m.is_read ? (
-                              <CheckCheck size={13} color="#0ea5e9" title="Read" />
-                            ) : (
-                              <Check size={13} title="Sent" />
-                            )
-                          )}
-                        </div>
-                      </div>
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -447,7 +640,7 @@ const PatientMessages = () => {
                 gap: '8px',
                 overflowX: 'auto',
                 whiteSpace: 'nowrap',
-                background: 'rgba(0,0,0,0.02)',
+                background: 'var(--surface-hover)',
               }}>
                 {quickPrompts.map((prompt, idx) => (
                   <button
@@ -455,7 +648,7 @@ const PatientMessages = () => {
                     type="button"
                     onClick={() => setNewMessage(prompt)}
                     style={{
-                      background: 'var(--surface-hover)',
+                      background: 'var(--bg-glass-card)',
                       border: '1px solid var(--border-subtle)',
                       borderRadius: '20px',
                       padding: '5px 12px',
@@ -464,6 +657,14 @@ const PatientMessages = () => {
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',
                       flexShrink: 0,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = 'var(--color-primary)';
+                      e.currentTarget.style.borderColor = 'var(--color-primary)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = 'var(--text-muted)';
+                      e.currentTarget.style.borderColor = 'var(--border-subtle)';
                     }}
                   >
                     + {prompt}
@@ -485,9 +686,10 @@ const PatientMessages = () => {
               >
                 <input
                   type="text"
-                  placeholder={`Send message to Dr. ${selectedUser.full_name}...`}
+                  placeholder={`Send message to Dr. ${selectedUser.full_name}... (Press Enter to send)`}
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyDown={handleKeyDown}
                   disabled={sending}
                   style={{
                     flex: 1,
@@ -520,14 +722,14 @@ const PatientMessages = () => {
                     transition: 'all 0.15s ease',
                   }}
                 >
-                  <Send size={16} /> Send
+                  <Send size={16} /> {sending ? 'Sending...' : 'Send'}
                 </button>
               </form>
             </>
           ) : (
             <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>
               <MessageSquare size={44} style={{ opacity: 0.3, marginBottom: '12px' }} />
-              <p style={{ margin: 0, fontWeight: 600 }}>Select a clinician to begin messaging</p>
+              <p style={{ margin: 0, fontWeight: 600 }}>Select a clinician from your care team to begin messaging</p>
             </div>
           )}
         </div>

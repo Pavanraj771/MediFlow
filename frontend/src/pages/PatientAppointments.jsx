@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Calendar, Clock, UserRound, X, Plus, CalendarCheck,
   CalendarDays, History, XCircle, AlertCircle, Stethoscope, ChevronRight,
-  Search, RotateCcw, Star
+  Search, RotateCcw, Star, MessageSquare
 } from 'lucide-react';
 import PatientAvatarMenu from '../components/PatientAvatarMenu';
 import DoctorReviewModal from '../components/DoctorReviewModal';
@@ -635,68 +635,85 @@ const PatientAppointments = () => {
                       </div>
                     </div>
 
-                    {apt.status === 'SCHEDULED' && (
-                      <button
-                        onClick={() => handleCancelAppointment(apt.id)}
-                        className="btn-danger-action"
-                        disabled={cancellingId === apt.id}
-                        title="Cancel this appointment"
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <Link
+                        to={`/patient/messages?doctorId=${apt.doctor}&appointmentId=${apt.id}`}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '6px',
+                          padding: '8px 12px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 600,
+                          background: 'rgba(14, 165, 233, 0.1)', color: '#0ea5e9',
+                          border: '1px solid rgba(14, 165, 233, 0.25)', textDecoration: 'none',
+                          transition: 'all 0.2s ease',
+                        }}
+                        title="Send care question or follow-up note to this doctor"
                       >
-                        <XCircle size={15} />
-                        {cancellingId === apt.id ? 'Cancelling...' : 'Cancel Appointment'}
-                      </button>
-                    )}
+                        <MessageSquare size={14} />
+                        <span>Message</span>
+                      </Link>
 
-                    {apt.status === 'COMPLETED' && (
-                      apt.review ? (
+                      {apt.status === 'SCHEDULED' && (
                         <button
-                          type="button"
-                          onClick={() => setReviewingAppointment(apt)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 14px',
-                            borderRadius: '10px',
-                            background: 'rgba(245, 158, 11, 0.12)',
-                            border: '1px solid rgba(245, 158, 11, 0.35)',
-                            color: '#d97706',
-                            fontWeight: 700,
-                            fontSize: '0.85rem',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                          }}
-                          title="Click to view or edit your review"
+                          onClick={() => handleCancelAppointment(apt.id)}
+                          className="btn-danger-action"
+                          disabled={cancellingId === apt.id}
+                          title="Cancel this appointment"
                         >
-                          <Star size={15} fill="#f59e0b" color="#f59e0b" />
-                          <span>Rated {apt.review.rating}/5</span>
+                          <XCircle size={15} />
+                          {cancellingId === apt.id ? 'Cancelling...' : 'Cancel Appointment'}
                         </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setReviewingAppointment(apt)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 14px',
-                            borderRadius: '10px',
-                            background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                            border: 'none',
-                            color: '#ffffff',
-                            fontWeight: 700,
-                            fontSize: '0.85rem',
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 6px rgba(245, 158, 11, 0.35)',
-                            transition: 'all 0.2s ease',
-                          }}
-                          title="Rate and review your doctor for this completed appointment"
-                        >
-                          <Star size={15} fill="#ffffff" color="#ffffff" />
-                          <span>Rate & Review</span>
-                        </button>
-                      )
-                    )}
+                      )}
+
+                      {apt.status === 'COMPLETED' && (
+                        apt.review ? (
+                          <button
+                            type="button"
+                            onClick={() => setReviewingAppointment(apt)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px 14px',
+                              borderRadius: '10px',
+                              background: 'rgba(245, 158, 11, 0.12)',
+                              border: '1px solid rgba(245, 158, 11, 0.35)',
+                              color: '#d97706',
+                              fontWeight: 700,
+                              fontSize: '0.85rem',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                            }}
+                            title="Click to view or edit your review"
+                          >
+                            <Star size={15} fill="#f59e0b" color="#f59e0b" />
+                            <span>Rated {apt.review.rating}/5</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setReviewingAppointment(apt)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px 14px',
+                              borderRadius: '10px',
+                              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                              border: 'none',
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: '0.85rem',
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 6px rgba(245, 158, 11, 0.35)',
+                              transition: 'all 0.2s ease',
+                            }}
+                            title="Rate and review your doctor for this completed appointment"
+                          >
+                            <Star size={15} fill="#ffffff" color="#ffffff" />
+                            <span>Rate & Review</span>
+                          </button>
+                        )
+                      )}
+                    </div>
                   </div>
                 );
               })}

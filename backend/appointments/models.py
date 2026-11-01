@@ -278,6 +278,7 @@ class NotificationType(models.TextChoices):
     APPOINTMENT_CANCELLED = "APPOINTMENT_CANCELLED", "Appointment Cancelled"
     APPOINTMENT_COMPLETED = "APPOINTMENT_COMPLETED", "Appointment Completed"
     APPOINTMENT_REMINDER = "APPOINTMENT_REMINDER", "30-Min Reminder"
+    CARE_MESSAGE = "CARE_MESSAGE", "Care Message"
     ADMIN_BROADCAST = "ADMIN_BROADCAST", "Admin Announcement"
     GENERAL = "GENERAL", "General Notification"
 

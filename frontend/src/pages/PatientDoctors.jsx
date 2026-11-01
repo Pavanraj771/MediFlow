@@ -111,36 +111,53 @@ const DoctorCard = ({ doctor, onOpenReviews }) => {
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
+      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => onOpenReviews(doctor)}
           style={{
             flex: 1,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-            padding: '10px 12px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+            padding: '10px 10px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 600,
             background: 'var(--bg-surface)', color: 'var(--text-main)',
             border: '1px solid var(--border-subtle)', cursor: 'pointer',
             transition: 'background 0.2s',
           }}
           title="Read all patient reviews for this doctor"
         >
-          <MessageSquare size={14} color="#f59e0b" />
+          <Star size={13} color="#f59e0b" />
           <span>Reviews ({reviewCount})</span>
         </button>
 
         <Link
+          to={`/patient/messages?doctorId=${doctor.user?.id || doctor.id}`}
+          style={{
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+            padding: '10px 10px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 600,
+            background: 'rgba(14, 165, 233, 0.1)', color: '#0ea5e9',
+            border: '1px solid rgba(14, 165, 233, 0.25)', textDecoration: 'none',
+            transition: 'background 0.2s',
+          }}
+          title="Send care inquiry or follow-up note to Dr."
+        >
+          <MessageSquare size={13} />
+          <span>Message</span>
+        </Link>
+
+        <Link
           to={`/patient/appointments?doctorId=${doctor.user?.id}&department=${doctor.department}&doctorName=${encodeURIComponent(doctor.user?.full_name || '')}`}
           style={{
-            flex: 1.3,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-            padding: '10px 12px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 700,
+            flex: 1.1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+            padding: '10px 10px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700,
             background: dc.bg, color: dc.color,
             border: `1px solid ${dc.color}40`, textDecoration: 'none',
             transition: 'background 0.2s',
           }}
         >
-          <CalendarDays size={14} /> Book
+          <CalendarDays size={13} />
+          <span>Book</span>
         </Link>
       </div>
     </div>

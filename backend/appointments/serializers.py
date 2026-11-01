@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from django.db.models import Avg
 from rest_framework import serializers
@@ -268,6 +269,24 @@ class CareMessageSerializer(serializers.ModelSerializer):
             'appointment', 'subject', 'content', 'is_read', 'created_at',
         ]
         read_only_fields = ['id', 'sender', 'sender_details', 'recipient_details', 'created_at']
+
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
+        recipient = data.get('recipient')
+        if recipient:
+            from accounts.models import User
+            # If recipient is not a valid User UUID, check if it's a DoctorProfile ID
+            try:
+                uuid.UUID(str(recipient))
+                if not User.objects.filter(id=recipient).exists():
+                    dp = DoctorProfile.objects.filter(id=recipient).first()
+                    if dp:
+                        data['recipient'] = str(dp.user_id)
+            except (ValueError, TypeError):
+                dp = DoctorProfile.objects.filter(id=recipient).first()
+                if dp:
+                    data['recipient'] = str(dp.user_id)
+        return super().to_internal_value(data)
 
 
 # ── Lab Test Serializer ───────────────────────────────────────────────────────

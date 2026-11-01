@@ -12,7 +12,8 @@ import {
   ExternalLink,
   Info,
   Search,
-  Filter
+  Filter,
+  MessageSquare
 } from 'lucide-react';
 import { appointmentsService } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
@@ -129,6 +130,8 @@ export const PatientNotificationBell = () => {
       item.notification_type === 'APPOINTMENT_REMINDER'
     ) {
       navigate('/patient/appointments');
+    } else if (item.notification_type === 'CARE_MESSAGE') {
+      navigate(item.related_id ? `/patient/messages?doctorId=${item.related_id}` : '/patient/messages');
     }
   };
 
@@ -139,6 +142,12 @@ export const PatientNotificationBell = () => {
           icon: <Sparkles size={16} />,
           bg: isDark ? 'rgba(56, 189, 248, 0.2)' : 'rgba(2, 132, 199, 0.15)',
           color: isDark ? '#38bdf8' : '#0284c7',
+        };
+      case 'CARE_MESSAGE':
+        return {
+          icon: <MessageSquare size={16} />,
+          bg: isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(79, 70, 229, 0.15)',
+          color: isDark ? '#818cf8' : '#4f46e5',
         };
       case 'APPOINTMENT_SCHEDULED':
         return {

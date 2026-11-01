@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, CalendarCheck, Clock, Filter, Search,
   CheckCircle2, XCircle, AlertCircle, ClipboardList,
-  UserRound, ChevronRight, Stethoscope, ArrowUpDown, Calendar, RotateCcw, X, Star
+  UserRound, ChevronRight, Stethoscope, ArrowUpDown, Calendar, RotateCcw, X, Star, MessageSquare
 } from 'lucide-react';
 import { appointmentsService } from '../services/api';
 import '../styles/PatientPortal.css';
@@ -514,6 +514,19 @@ const DoctorAppointments = () => {
                     </button>
                   </>
                 )}
+
+                <Link
+                  to={`/doctor/messages?patientId=${apt.patient}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '5px',
+                    padding: '6px 12px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600,
+                    background: 'rgba(14,165,233,0.1)', color: '#0ea5e9', border: '1px solid rgba(14,165,233,0.3)',
+                    textDecoration: 'none',
+                  }}
+                  title="Send care message to this patient"
+                >
+                  <MessageSquare size={13} /> Message
+                </Link>
 
                 {(apt.status === 'COMPLETED' || apt.status === 'SCHEDULED') && (
                   <Link

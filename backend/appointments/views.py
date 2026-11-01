@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from django.utils import timezone
+from django.db import models
 from django.db.models import Q
 from rest_framework import viewsets, generics, permissions, status
 from rest_framework.response import Response
@@ -583,7 +584,22 @@ class CareMessageViewSet(viewsets.ModelViewSet):
         return qs.order_by('created_at')
 
     def perform_create(self, serializer):
-        serializer.save(sender=self.request.user)
+        message = serializer.save(sender=self.request.user)
+        try:
+            sender = self.request.user
+            recipient = message.recipient
+            if sender != recipient:
+                sender_label = f"Dr. {sender.full_name}" if sender.role == UserRole.DOCTOR else sender.full_name
+                preview = (message.content[:75] + "...") if len(message.content) > 75 else message.content
+                Notification.objects.create(
+                    recipient=recipient,
+                    title=f"New message from {sender_label}",
+                    message=f"\"{preview}\"",
+                    notification_type=NotificationType.CARE_MESSAGE,
+                    related_id=str(sender.id),
+                )
+        except Exception:
+            pass
 
     @action(detail=False, methods=['post'], url_path='mark-read')
     def mark_read(self, request):
@@ -600,12 +616,14 @@ class CareMessageViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='conversations')
     def conversations(self, request):
         user = request.user
-        # Find all doctors or patients this user has interacted with or has appointments with
         partners = set()
         if user.role == UserRole.PATIENT:
             # doctors from appointments
             doctor_ids = Appointment.objects.filter(patient=user).values_list('doctor_id', flat=True)
             partners.update(doctor_ids)
+            # all active registered doctors so patient can start a care conversation with any doctor
+            all_doctor_ids = DoctorProfile.objects.filter(user__is_active=True).values_list('user_id', flat=True)
+            partners.update(all_doctor_ids)
         elif user.role == UserRole.DOCTOR:
             # patients from appointments
             patient_ids = Appointment.objects.filter(doctor=user).values_list('patient_id', flat=True)
@@ -617,7 +635,7 @@ class CareMessageViewSet(viewsets.ModelViewSet):
         partners.update(sent_to)
         partners.update(rcvd_from)
 
-        contact_users = User.objects.filter(id__in=partners)
+        contact_users = User.objects.filter(id__in=partners).select_related('doctor_profile')
         data = []
         for u in contact_users:
             last_msg = CareMessage.objects.filter(
@@ -628,6 +646,12 @@ class CareMessageViewSet(viewsets.ModelViewSet):
             unread = CareMessage.objects.filter(sender=u, recipient=user, is_read=False).count()
             dept = getattr(getattr(u, 'doctor_profile', None), 'department', '')
 
+            # Latest appointment between this user and contact if any
+            if user.role == UserRole.PATIENT:
+                latest_apt = Appointment.objects.filter(patient=user, doctor=u).order_by('-appointment_datetime').first()
+            else:
+                latest_apt = Appointment.objects.filter(doctor=user, patient=u).order_by('-appointment_datetime').first()
+
             data.append({
                 'user_id': str(u.id),
                 'full_name': u.full_name,
@@ -637,10 +661,11 @@ class CareMessageViewSet(viewsets.ModelViewSet):
                 'unread_count': unread,
                 'last_message': last_msg.content if last_msg else '',
                 'last_message_at': last_msg.created_at.isoformat() if last_msg else None,
+                'appointment_id': str(latest_apt.id) if latest_apt else None,
             })
 
-        # Sort conversations by most recent message
-        data.sort(key=lambda x: x['last_message_at'] or '', reverse=True)
+        # Sort conversations: active messages first (newest to oldest), then alphabetically by name
+        data.sort(key=lambda x: (x['last_message_at'] is not None, x['last_message_at'] or '', x['full_name']), reverse=True)
         return Response(data)
 
 
