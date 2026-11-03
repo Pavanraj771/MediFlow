@@ -795,7 +795,12 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
     def sync_admin_broadcasts(self, user):
         from accounts.models import HospitalBroadcast
-        active_broadcasts = HospitalBroadcast.objects.filter(is_active=True).order_by('-created_at')[:10]
+        active_broadcasts = HospitalBroadcast.objects.filter(is_active=True)
+        if user.role == UserRole.PATIENT:
+            active_broadcasts = active_broadcasts.filter(target_audience__in=['ALL', 'PATIENT'])
+        elif user.role == UserRole.DOCTOR:
+            active_broadcasts = active_broadcasts.filter(target_audience__in=['ALL', 'DOCTOR'])
+        active_broadcasts = active_broadcasts.order_by('-created_at')[:10]
         for b in active_broadcasts:
             if not Notification.objects.filter(recipient=user, notification_type=NotificationType.ADMIN_BROADCAST, related_id=str(b.id)).exists():
                 Notification.objects.create(
@@ -853,6 +858,15 @@ class DoctorReviewViewSet(viewsets.ModelViewSet):
                         qs = qs.filter(doctor__doctor_profile__id=int_id)
                     except (ValueError, TypeError):
                         pass
+
+        patient_id = self.request.query_params.get('patient')
+        if patient_id and patient_id != 'undefined' and patient_id != 'null':
+            try:
+                import uuid
+                val_uuid = uuid.UUID(str(patient_id))
+                qs = qs.filter(patient_id=val_uuid)
+            except (ValueError, TypeError):
+                pass
 
         appointment_id = self.request.query_params.get('appointment')
         if appointment_id and appointment_id != 'undefined' and appointment_id != 'null':

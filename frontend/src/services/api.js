@@ -155,6 +155,8 @@ export const appointmentsService = {
 
   // ── Doctor Reviews ──────────────────────────────────────────────────────────
   getDoctorReviews: async (doctorId) => (await api.get('/appointments/reviews/', { params: { doctor: doctorId } })).data,
+  getPatientReviews: async (patientId) => (await api.get('/appointments/reviews/', { params: { patient: patientId } })).data,
+  getReviews: async (params = {}) => (await api.get('/appointments/reviews/', { params })).data,
   submitDoctorReview: async (data) => (await api.post('/appointments/reviews/', data)).data,
 };
 

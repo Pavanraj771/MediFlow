@@ -351,6 +351,7 @@ class NotificationSerializer(serializers.ModelSerializer):
 class DoctorReviewSerializer(serializers.ModelSerializer):
     patient_name = serializers.CharField(source='patient.full_name', read_only=True)
     doctor_name = serializers.CharField(source='doctor.full_name', read_only=True)
+    doctor_department = serializers.CharField(source='doctor.doctor_profile.department', read_only=True)
     appointment = serializers.PrimaryKeyRelatedField(
         queryset=Appointment.objects.all(),
         required=False
@@ -360,7 +361,7 @@ class DoctorReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = DoctorReview
         fields = [
-            'id', 'patient', 'patient_name', 'doctor', 'doctor_name',
+            'id', 'patient', 'patient_name', 'doctor', 'doctor_name', 'doctor_department',
             'appointment', 'appointment_id', 'rating', 'comment', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'patient', 'doctor', 'created_at', 'updated_at']

@@ -151,11 +151,17 @@ class HospitalBroadcast(models.Model):
         ("WARNING", "Advisory Warning"),
         ("EMERGENCY", "Code Emergency"),
     ]
+    TARGET_AUDIENCE_CHOICES = [
+        ("ALL", "Both (Patients & Doctors)"),
+        ("PATIENT", "Patients Only"),
+        ("DOCTOR", "Doctors Only"),
+    ]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="broadcasts")
     title = models.CharField(max_length=200)
     message = models.TextField()
     alert_level = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="INFO")
+    target_audience = models.CharField(max_length=20, choices=TARGET_AUDIENCE_CHOICES, default="ALL")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

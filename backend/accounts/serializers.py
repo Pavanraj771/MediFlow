@@ -11,9 +11,18 @@ class UserSerializer(serializers.ModelSerializer):
     license_number = serializers.SerializerMethodField()
     years_experience = serializers.SerializerMethodField()
     consultation_fee = serializers.SerializerMethodField()
+    bio = serializers.SerializerMethodField()
     blood_group = serializers.SerializerMethodField()
-    critical_alert = serializers.SerializerMethodField()
+    date_of_birth = serializers.SerializerMethodField()
+    gender = serializers.SerializerMethodField()
+    address = serializers.SerializerMethodField()
+    allergies = serializers.SerializerMethodField()
+    chronic_conditions = serializers.SerializerMethodField()
+    emergency_contact_name = serializers.SerializerMethodField()
     emergency_contact_phone = serializers.SerializerMethodField()
+    emergency_contact_relation = serializers.SerializerMethodField()
+    critical_alert = serializers.SerializerMethodField()
+    organ_donor = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -32,9 +41,18 @@ class UserSerializer(serializers.ModelSerializer):
             "license_number",
             "years_experience",
             "consultation_fee",
+            "bio",
             "blood_group",
-            "critical_alert",
+            "date_of_birth",
+            "gender",
+            "address",
+            "allergies",
+            "chronic_conditions",
+            "emergency_contact_name",
             "emergency_contact_phone",
+            "emergency_contact_relation",
+            "critical_alert",
+            "organ_donor",
         ]
         read_only_fields = ["id", "email", "role", "created_at"]
 
@@ -54,17 +72,53 @@ class UserSerializer(serializers.ModelSerializer):
         doc = getattr(obj, "doctor_profile", None)
         return str(doc.consultation_fee) if doc else None
 
+    def get_bio(self, obj):
+        doc = getattr(obj, "doctor_profile", None)
+        return doc.bio if doc else None
+
     def get_blood_group(self, obj):
         pat = getattr(obj, "patient_profile", None)
         return pat.blood_group if pat else None
+
+    def get_date_of_birth(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return str(pat.date_of_birth) if pat and pat.date_of_birth else None
+
+    def get_gender(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.gender if pat else None
+
+    def get_address(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.address if pat else None
+
+    def get_allergies(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.allergies if pat else None
+
+    def get_chronic_conditions(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.chronic_conditions if pat else None
+
+    def get_emergency_contact_name(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.emergency_contact_name if pat else None
+
+    def get_emergency_contact_phone(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.emergency_contact_phone if pat else None
+
+    def get_emergency_contact_relation(self, obj):
+        pat = getattr(obj, "patient_profile", None)
+        return pat.emergency_contact_relation if pat else None
 
     def get_critical_alert(self, obj):
         pat = getattr(obj, "patient_profile", None)
         return pat.critical_alert if pat else None
 
-    def get_emergency_contact_phone(self, obj):
+    def get_organ_donor(self, obj):
         pat = getattr(obj, "patient_profile", None)
-        return pat.emergency_contact_phone if pat else None
+        return pat.organ_donor if pat else False
 
     def validate_username(self, value):
         if value:
@@ -252,6 +306,7 @@ class HospitalBroadcastSerializer(serializers.ModelSerializer):
             "title",
             "message",
             "alert_level",
+            "target_audience",
             "is_active",
             "created_by",
             "created_by_name",

@@ -17,10 +17,12 @@ import {
 } from 'lucide-react';
 import { appointmentsService } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import DoctorReviewModal from './DoctorReviewModal';
 
 export const PatientNotificationBell = () => {
+  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [showAllModal, setShowAllModal] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -123,15 +125,20 @@ export const PatientNotificationBell = () => {
     }
     setIsOpen(false);
     setShowAllModal(false);
+    const isDoctor = user?.role === 'DOCTOR';
     if (
       item.notification_type === 'APPOINTMENT_SCHEDULED' ||
       item.notification_type === 'APPOINTMENT_CANCELLED' ||
       item.notification_type === 'APPOINTMENT_COMPLETED' ||
       item.notification_type === 'APPOINTMENT_REMINDER'
     ) {
-      navigate('/patient/appointments');
+      navigate(isDoctor ? '/doctor/appointments' : '/patient/appointments');
     } else if (item.notification_type === 'CARE_MESSAGE') {
-      navigate(item.related_id ? `/patient/messages?doctorId=${item.related_id}` : '/patient/messages');
+      if (isDoctor) {
+        navigate('/doctor/messages');
+      } else {
+        navigate(item.related_id ? `/patient/messages?doctorId=${item.related_id}` : '/patient/messages');
+      }
     }
   };
 
@@ -465,7 +472,7 @@ export const PatientNotificationBell = () => {
                         {item.message}
                       </p>
 
-                      {item.notification_type === 'APPOINTMENT_COMPLETED' && (
+                      {item.notification_type === 'APPOINTMENT_COMPLETED' && user?.role === 'PATIENT' && (
                         <div style={{ marginTop: '8px' }}>
                           <button
                             type="button"
@@ -874,7 +881,7 @@ export const PatientNotificationBell = () => {
                           {item.message}
                         </p>
 
-                        {item.notification_type === 'APPOINTMENT_COMPLETED' && (
+                        {item.notification_type === 'APPOINTMENT_COMPLETED' && user?.role === 'PATIENT' && (
                           <div style={{ marginTop: '8px' }}>
                             <button
                               type="button"

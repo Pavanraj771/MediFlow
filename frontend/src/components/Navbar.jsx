@@ -198,7 +198,12 @@ export const Navbar = () => {
                   <PatientAvatarMenu size={40} />
                 </>
               )}
-              {user?.role === 'DOCTOR' && <DoctorAvatarMenu size={40} />}
+              {user?.role === 'DOCTOR' && (
+                <>
+                  <PatientNotificationBell />
+                  <DoctorAvatarMenu size={40} />
+                </>
+              )}
               {user?.role === 'ADMIN' && <AdminAvatarMenu size={40} />}
             </>
           ) : (

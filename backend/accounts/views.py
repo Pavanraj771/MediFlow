@@ -601,7 +601,11 @@ class HospitalBroadcastViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == UserRole.ADMIN:
             return HospitalBroadcast.objects.all().order_by("-created_at")
-        return HospitalBroadcast.objects.filter(is_active=True).order_by("-created_at")
+        elif user.role == UserRole.DOCTOR:
+            return HospitalBroadcast.objects.filter(is_active=True, target_audience__in=["ALL", "DOCTOR"]).order_by("-created_at")
+        elif user.role == UserRole.PATIENT:
+            return HospitalBroadcast.objects.filter(is_active=True, target_audience__in=["ALL", "PATIENT"]).order_by("-created_at")
+        return HospitalBroadcast.objects.filter(is_active=True, target_audience="ALL").order_by("-created_at")
 
     def perform_create(self, serializer):
         if self.request.user.role != UserRole.ADMIN:
@@ -610,23 +614,29 @@ class HospitalBroadcastViewSet(viewsets.ModelViewSet):
         record_audit_log(
             self.request.user,
             "BROADCAST_CREATED",
-            f"Hospital alert posted: '{broadcast.title}' ({broadcast.alert_level}).",
+            f"Hospital alert posted: '{broadcast.title}' ({broadcast.alert_level}, Target: {broadcast.target_audience}).",
             "INFO"
         )
         try:
             from appointments.models import Notification, NotificationType
-            patients = User.objects.filter(role=UserRole.PATIENT, is_active=True)
+            recipients = []
+            if broadcast.target_audience in ["ALL", "PATIENT"]:
+                recipients.extend(list(User.objects.filter(role=UserRole.PATIENT, is_active=True)))
+            if broadcast.target_audience in ["ALL", "DOCTOR"]:
+                recipients.extend(list(User.objects.filter(role=UserRole.DOCTOR, is_active=True)))
+
             notifications = [
                 Notification(
-                    recipient=p,
+                    recipient=u,
                     title=f"Hospital Notice: {broadcast.title}",
                     message=broadcast.message,
                     notification_type=NotificationType.ADMIN_BROADCAST,
                     related_id=str(broadcast.id),
                 )
-                for p in patients
+                for u in set(recipients)
             ]
-            Notification.objects.bulk_create(notifications)
+            if notifications:
+                Notification.objects.bulk_create(notifications)
         except Exception:
             pass
 
