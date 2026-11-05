@@ -147,7 +147,10 @@ class DoctorLeaveSerializer(serializers.ModelSerializer):
 class PrescriptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Prescription
-        fields = ['id', 'medication_name', 'dosage', 'frequency', 'duration', 'instructions', 'created_at']
+        fields = [
+            'id', 'medication_name', 'dosage', 'frequency', 'duration',
+            'instructions', 'times_taken', 'last_taken_at', 'taken_dates', 'created_at'
+        ]
         read_only_fields = ['id', 'created_at']
 
     def to_internal_value(self, data):

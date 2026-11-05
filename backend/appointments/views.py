@@ -22,6 +22,7 @@ from .serializers import (
     AppointmentSerializer, ConsultationNoteSerializer,
     CareMessageSerializer, LabTestSerializer,
     PatientVitalsLogSerializer, PrescriptionRefillSerializer,
+    PrescriptionSerializer,
     NotificationSerializer, DoctorReviewSerializer,
 )
 from accounts.models import User, UserRole
@@ -566,6 +567,22 @@ class CareMessageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        if user.role == UserRole.ADMIN:
+            qs = CareMessage.objects.all().select_related('sender', 'recipient', 'appointment')
+            patient_id = self.request.query_params.get('patient_id')
+            if patient_id:
+                qs = qs.filter(models.Q(sender_id=patient_id) | models.Q(recipient_id=patient_id))
+            doctor_id = self.request.query_params.get('doctor_id')
+            if doctor_id:
+                qs = qs.filter(models.Q(sender_id=doctor_id) | models.Q(recipient_id=doctor_id))
+            user_id = self.request.query_params.get('user_id')
+            if user_id:
+                qs = qs.filter(models.Q(sender_id=user_id) | models.Q(recipient_id=user_id))
+            appointment_id = self.request.query_params.get('appointment_id')
+            if appointment_id:
+                qs = qs.filter(appointment_id=appointment_id)
+            return qs.order_by('created_at')
+
         qs = CareMessage.objects.filter(
             models.Q(sender=user) | models.Q(recipient=user)
         ).select_related('sender', 'recipient', 'appointment')
@@ -700,17 +717,94 @@ class PatientVitalsLogViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        patient_id = self.request.query_params.get('patient_id')
         if user.role == UserRole.PATIENT:
             return PatientVitalsLog.objects.filter(patient=user).select_related('patient')
         elif user.role == UserRole.DOCTOR:
-            patient_id = self.request.query_params.get('patient_id')
             if patient_id:
                 return PatientVitalsLog.objects.filter(patient_id=patient_id).select_related('patient')
             return PatientVitalsLog.objects.none()
+        elif user.role == UserRole.ADMIN:
+            qs = PatientVitalsLog.objects.all().select_related('patient')
+            if patient_id:
+                qs = qs.filter(patient_id=patient_id)
+            return qs
         return PatientVitalsLog.objects.all().select_related('patient')
 
     def perform_create(self, serializer):
         serializer.save(patient=self.request.user)
+
+
+# ── Prescription ViewSet ──────────────────────────────────────────────────────
+class PrescriptionViewSet(viewsets.ModelViewSet):
+    serializer_class = PrescriptionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Prescription.objects.all().select_related(
+            'consultation__appointment__patient',
+            'consultation__appointment__doctor',
+            'consultation__appointment__doctor__doctor_profile'
+        ).order_by('-created_at')
+
+        patient_id = self.request.query_params.get('patient_id')
+        if patient_id:
+            qs = qs.filter(consultation__appointment__patient_id=patient_id)
+
+        doctor_id = self.request.query_params.get('doctor_id')
+        if doctor_id:
+            qs = qs.filter(consultation__appointment__doctor_id=doctor_id)
+
+        if user.role == UserRole.PATIENT:
+            qs = qs.filter(consultation__appointment__patient=user)
+        elif user.role == UserRole.DOCTOR:
+            if not patient_id:
+                qs = qs.filter(consultation__appointment__doctor=user)
+
+        return qs
+
+    @action(detail=True, methods=['post'], url_path='mark-taken')
+    def mark_taken(self, request, pk=None):
+        prescription = self.get_object()
+        slot = request.data.get('slot', '')
+        date_str = request.data.get('date', timezone.now().date().isoformat())
+        taken_entry = {'slot': slot, 'date': date_str, 'taken_at': timezone.now().isoformat()}
+
+        dates = prescription.taken_dates or []
+        already_taken = any(isinstance(d, dict) and d.get('slot') == slot and d.get('date') == date_str for d in dates)
+        if not already_taken:
+            dates.append(taken_entry)
+            prescription.taken_dates = dates
+            prescription.times_taken += 1
+            prescription.last_taken_at = timezone.now()
+            prescription.save(update_fields=['taken_dates', 'times_taken', 'last_taken_at'])
+
+        return Response({
+            'status': 'success',
+            'prescription_id': str(prescription.id),
+            'times_taken': prescription.times_taken,
+            'last_taken_at': prescription.last_taken_at,
+            'taken_dates': prescription.taken_dates,
+        })
+
+    @action(detail=True, methods=['post'], url_path='unmark-taken')
+    def unmark_taken(self, request, pk=None):
+        prescription = self.get_object()
+        slot = request.data.get('slot', '')
+        date_str = request.data.get('date', timezone.now().date().isoformat())
+        dates = prescription.taken_dates or []
+        new_dates = [d for d in dates if not (isinstance(d, dict) and d.get('slot') == slot and d.get('date') == date_str)]
+        if len(new_dates) < len(dates):
+            prescription.taken_dates = new_dates
+            prescription.times_taken = max(0, prescription.times_taken - 1)
+            prescription.save(update_fields=['taken_dates', 'times_taken'])
+
+        return Response({
+            'status': 'success',
+            'times_taken': prescription.times_taken,
+            'taken_dates': prescription.taken_dates,
+        })
 
 
 # ── Prescription Refill ViewSet ───────────────────────────────────────────────

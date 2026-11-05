@@ -163,6 +163,7 @@ class HospitalBroadcast(models.Model):
     alert_level = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="INFO")
     target_audience = models.CharField(max_length=20, choices=TARGET_AUDIENCE_CHOICES, default="ALL")
     is_active = models.BooleanField(default=True)
+    dismissed_by = models.ManyToManyField(User, blank=True, related_name="dismissed_broadcasts")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

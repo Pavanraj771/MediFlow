@@ -152,6 +152,9 @@ const PatientPrescriptions = () => {
     } catch (e) {
       console.error(e);
     }
+
+    // Persist adherence to server database for clinical & administrative oversight
+    appointmentsService.markPrescriptionTaken(pillId, { slot: slotId }).catch(() => {});
   };
 
   const handleToggleTaken = (pillId, slotId, originalDuration) => {
@@ -174,6 +177,8 @@ const PatientPrescriptions = () => {
       try {
         localStorage.setItem(todayKey, JSON.stringify(updatedTaken));
       } catch (e) {}
+
+      appointmentsService.unmarkPrescriptionTaken(pillId, { slot: slotId }).catch(() => {});
     } else {
       handleMarkTaken(pillId, slotId, originalDuration);
     }

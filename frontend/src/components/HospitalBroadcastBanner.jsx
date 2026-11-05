@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Radio, X, AlertTriangle, AlertCircle, Info } from 'lucide-react';
+import { Radio, X, AlertTriangle, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { authService } from '../services/api';
@@ -10,14 +10,24 @@ export const HospitalBroadcastBanner = () => {
   const { isDark } = useTheme();
   const location = useLocation();
   const [broadcast, setBroadcast] = useState(null);
-  const [dismissedIds, setDismissedIds] = useState(() => {
-    try {
-      const saved = sessionStorage.getItem('mediflow_dismissed_broadcasts');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
+
+  // Per-user storage key so dismissing on one account NEVER affects another account
+  const storageKey = user?.id ? `mediflow_dismissed_broadcasts_${user.id}` : null;
+  const [dismissedIds, setDismissedIds] = useState([]);
+
+  // Load dismissed broadcasts specifically for the active user account
+  useEffect(() => {
+    if (!storageKey) {
+      setDismissedIds([]);
+      return;
     }
-  });
+    try {
+      const saved = sessionStorage.getItem(storageKey);
+      setDismissedIds(saved ? JSON.parse(saved) : []);
+    } catch {
+      setDismissedIds([]);
+    }
+  }, [storageKey]);
 
   useEffect(() => {
     // Alert should NEVER appear in Admin portal or for Admin users
@@ -50,25 +60,35 @@ export const HospitalBroadcastBanner = () => {
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [isAuthenticated, user?.role, location.pathname]);
+  }, [isAuthenticated, user?.role, user?.id, location.pathname]);
 
   // NEVER render in Admin portal or for Admin users
   if (!isAuthenticated || user?.role === 'ADMIN' || location.pathname.startsWith('/admin')) {
     return null;
   }
 
-  // Hide if no active broadcast or user dismissed this particular broadcast ID
+  // Hide if no active broadcast or active user dismissed this particular broadcast ID
   if (!broadcast || dismissedIds.includes(broadcast.id)) {
     return null;
   }
 
-  const handleDismiss = () => {
+  const handleDismiss = async () => {
     if (broadcast?.id) {
-      const nextDismissed = [...dismissedIds, broadcast.id];
+      const bId = broadcast.id;
+      // 1. Instantly hide locally for this specific user account
+      const nextDismissed = [...dismissedIds, bId];
       setDismissedIds(nextDismissed);
+      if (storageKey) {
+        try {
+          sessionStorage.setItem(storageKey, JSON.stringify(nextDismissed));
+        } catch {}
+      }
+      // 2. Record dismissal on backend for this user account only
       try {
-        sessionStorage.setItem('mediflow_dismissed_broadcasts', JSON.stringify(nextDismissed));
-      } catch {}
+        await authService.dismissBroadcast(bId);
+      } catch (err) {
+        console.error('Failed to record broadcast dismissal on server:', err);
+      }
     }
   };
 

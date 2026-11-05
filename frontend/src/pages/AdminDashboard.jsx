@@ -48,7 +48,10 @@ import {
   Mail,
   MapPin,
   CalendarDays,
-  Plus
+  Plus,
+  MessageSquare,
+  CheckCircle2,
+  Droplets
 } from 'lucide-react';
 
 export const AdminDashboard = () => {
@@ -87,9 +90,16 @@ export const AdminDashboard = () => {
 
   // ── Drill-Down Detail Modals State ──────────────────────────────────────────
   const [selectedPatient, setSelectedPatient] = useState(null);
-  const [patientDetailTab, setPatientDetailTab] = useState('INFO'); // 'INFO' | 'APPOINTMENTS' | 'REVIEWS'
+  const [patientDetailTab, setPatientDetailTab] = useState('INFO'); // 'INFO' | 'RECORDS' | 'PRESCRIPTIONS' | 'MESSAGES' | 'VITALS' | 'APPOINTMENTS' | 'REVIEWS'
   const [patientReviews, setPatientReviews] = useState([]);
   const [loadingPatientReviews, setLoadingPatientReviews] = useState(false);
+  const [patientVitals, setPatientVitals] = useState([]);
+  const [loadingPatientVitals, setLoadingPatientVitals] = useState(false);
+  const [patientMessages, setPatientMessages] = useState([]);
+  const [loadingPatientMessages, setLoadingPatientMessages] = useState(false);
+  const [patientPrescriptions, setPatientPrescriptions] = useState([]);
+  const [loadingPatientPrescriptions, setLoadingPatientPrescriptions] = useState(false);
+  const [selectedMessageDoctor, setSelectedMessageDoctor] = useState('ALL');
 
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [doctorDetailTab, setDoctorDetailTab] = useState('INFO'); // 'INFO' | 'APPOINTMENTS' | 'REVIEWS'
@@ -209,10 +219,59 @@ export const AdminDashboard = () => {
     }
   };
 
+  const loadPatientVitals = async (patientId) => {
+    if (!patientId) return;
+    setLoadingPatientVitals(true);
+    try {
+      const data = await appointmentsService.getVitalsLogs({ patient_id: patientId });
+      const list = Array.isArray(data) ? data : data.results || [];
+      setPatientVitals(list);
+    } catch (err) {
+      console.error('Failed to load patient vitals:', err);
+      setPatientVitals([]);
+    } finally {
+      setLoadingPatientVitals(false);
+    }
+  };
+
+  const loadPatientMessages = async (patientId) => {
+    if (!patientId) return;
+    setLoadingPatientMessages(true);
+    try {
+      const data = await appointmentsService.getMessages({ patient_id: patientId });
+      const list = Array.isArray(data) ? data : data.results || [];
+      setPatientMessages(list);
+    } catch (err) {
+      console.error('Failed to load patient care messages:', err);
+      setPatientMessages([]);
+    } finally {
+      setLoadingPatientMessages(false);
+    }
+  };
+
+  const loadPatientPrescriptions = async (patientId) => {
+    if (!patientId) return;
+    setLoadingPatientPrescriptions(true);
+    try {
+      const data = await appointmentsService.getPrescriptions({ patient_id: patientId });
+      const list = Array.isArray(data) ? data : data.results || [];
+      setPatientPrescriptions(list);
+    } catch (err) {
+      console.error('Failed to load patient prescriptions:', err);
+      setPatientPrescriptions([]);
+    } finally {
+      setLoadingPatientPrescriptions(false);
+    }
+  };
+
   const handleOpenPatient = (p) => {
     setSelectedPatient(p);
     setPatientDetailTab('INFO');
+    setSelectedMessageDoctor('ALL');
     loadPatientReviews(p.id);
+    loadPatientVitals(p.id);
+    loadPatientMessages(p.id);
+    loadPatientPrescriptions(p.id);
   };
 
   const handleOpenDoctor = (d) => {
@@ -435,69 +494,16 @@ export const AdminDashboard = () => {
   return (
     <div style={{ maxWidth: '1360px', margin: '0 auto', padding: '32px 24px', minHeight: '85vh' }}>
 
-      {/* ── Navigation Tabs & Quick Action Controls ───────────────────────── */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '12px',
-        marginBottom: '28px',
-      }}>
-        {/* Navigation Tabs / Quick Switcher Pills */}
+      {/* ── Top Bar / Navigation Controls ─────────────────────────────────── */}
+      {activeTab === 'hub' ? (
+        /* On Admin Home: No duplicate tabs row needed because all sections are directly accessible below */
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
-          overflowX: 'auto',
-          paddingBottom: '4px',
-          flex: 1,
-          minWidth: '280px',
+          justifyContent: 'flex-end',
+          gap: '12px',
+          marginBottom: '24px',
         }}>
-          {[
-            { key: 'hub', label: 'Admin Home', icon: <Activity size={15} /> },
-            { key: 'patients', label: `Patient Management (${users.filter((u) => u.role === 'PATIENT').length})`, icon: <Users size={15} /> },
-            { key: 'doctors', label: `Doctor Management (${users.filter((u) => u.role === 'DOCTOR').length})`, icon: <Stethoscope size={15} /> },
-            { key: 'appointments', label: `Appointment Management (${appointments.length})`, icon: <CalendarCheck size={15} /> },
-            { key: 'alerts', label: `Broadcast Alerts (${broadcasts.length})`, icon: <Radio size={15} /> },
-            { key: 'security', label: 'Security & Audit Logs', icon: <ShieldCheck size={15} /> },
-          ].map((tab) => {
-            const isActive = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => handleTabChange(tab.key)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 18px',
-                  borderRadius: 'var(--radius-full)',
-                  fontSize: '0.85rem',
-                  fontWeight: isActive ? 800 : 600,
-                  background: isActive
-                    ? 'linear-gradient(135deg, #8b5cf6, #6366f1)'
-                    : 'var(--bg-glass-card)',
-                  color: isActive ? '#ffffff' : 'var(--text-muted)',
-                  border: isActive
-                    ? '1px solid rgba(139, 92, 246, 0.6)'
-                    : '1px solid var(--border-subtle)',
-                  boxShadow: isActive ? '0 4px 14px rgba(139, 92, 246, 0.35)' : 'none',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Action Controls: Post Alert & Refresh */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
           <button
             type="button"
             onClick={() => setShowBroadcastModal(true)}
@@ -544,7 +550,139 @@ export const AdminDashboard = () => {
             <span>Refresh</span>
           </button>
         </div>
-      </div>
+      ) : (
+        /* Inside specific management view: Display return button & section switcher without scrollbars */
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '28px',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            overflowX: 'auto',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+            paddingBottom: '2px',
+            flex: 1,
+            minWidth: '280px',
+          }}>
+            <button
+              type="button"
+              onClick={() => handleTabChange('hub')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 18px',
+                borderRadius: 'var(--radius-full)',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                background: 'var(--bg-glass-card)',
+                color: 'var(--color-admin)',
+                border: '1px solid rgba(139, 92, 246, 0.4)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <ArrowLeft size={15} />
+              <span>← Back to Admin Home</span>
+            </button>
+
+            {[
+              { key: 'patients', label: `Patient Management (${users.filter((u) => u.role === 'PATIENT').length})`, icon: <Users size={15} /> },
+              { key: 'doctors', label: `Doctor Management (${users.filter((u) => u.role === 'DOCTOR').length})`, icon: <Stethoscope size={15} /> },
+              { key: 'appointments', label: `Appointment Management (${appointments.length})`, icon: <CalendarCheck size={15} /> },
+              { key: 'alerts', label: `Broadcast Alerts (${broadcasts.length})`, icon: <Radio size={15} /> },
+              { key: 'security', label: 'Security & Audit Logs', icon: <ShieldCheck size={15} /> },
+            ].map((tab) => {
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => handleTabChange(tab.key)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '9px 16px',
+                    borderRadius: 'var(--radius-full)',
+                    fontSize: '0.84rem',
+                    fontWeight: isActive ? 800 : 600,
+                    background: isActive
+                      ? 'linear-gradient(135deg, #8b5cf6, #6366f1)'
+                      : 'var(--bg-glass-card)',
+                    color: isActive ? '#ffffff' : 'var(--text-muted)',
+                    border: isActive
+                      ? '1px solid rgba(139, 92, 246, 0.6)'
+                      : '1px solid var(--border-subtle)',
+                    boxShadow: isActive ? '0 4px 14px rgba(139, 92, 246, 0.35)' : 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setShowBroadcastModal(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 18px',
+                background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                border: 'none',
+                borderRadius: 'var(--radius-full)',
+                color: '#ffffff',
+                fontSize: '0.84rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)',
+              }}
+            >
+              <Radio size={15} />
+              <span>Post Alert</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={fetchAllData}
+              disabled={isLoading}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '9px 14px',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-full)',
+                color: 'var(--text-main)',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-sm)',
+              }}
+            >
+              <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ─────────────────────────────────────────────────────────────────── */}
       {/* 1. ADMIN HOME VIEW (Core 3 Management Pillars + Post Alert)       */}
@@ -1950,8 +2088,8 @@ export const AdminDashboard = () => {
             border: '1px solid var(--border-subtle)',
             borderRadius: 'var(--radius-xl)',
             width: '100%',
-            maxWidth: '820px',
-            maxHeight: '90vh',
+            maxWidth: '1000px',
+            maxHeight: '92vh',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
@@ -2030,13 +2168,36 @@ export const AdminDashboard = () => {
             {/* Modal Sub-navigation Tabs */}
             <div style={{
               display: 'flex',
+              alignItems: 'center',
               padding: '10px 24px',
               borderBottom: '1px solid var(--border-subtle)',
-              gap: '10px',
+              gap: '8px',
               background: 'var(--bg-glass-card)',
+              overflowX: 'auto',
+              scrollbarWidth: 'none',
             }}>
               {[
-                { id: 'INFO', label: 'Patient Profile & Medical ID', icon: <User size={14} /> },
+                { id: 'INFO', label: 'Patient Info', icon: <User size={14} /> },
+                {
+                  id: 'RECORDS',
+                  label: `Health Records & Notes (${appointments.filter((a) => a.patient === selectedPatient.id && a.consultation).length})`,
+                  icon: <FileText size={14} />
+                },
+                {
+                  id: 'PRESCRIPTIONS',
+                  label: `Prescriptions & Pill Routine (${(patientPrescriptions.length > 0 ? patientPrescriptions : appointments.filter((a) => a.patient === selectedPatient.id).flatMap((a) => a.consultation?.prescriptions || [])).length})`,
+                  icon: <Pill size={14} />
+                },
+                {
+                  id: 'MESSAGES',
+                  label: `Care Messages (${patientMessages.length})`,
+                  icon: <MessageSquare size={14} />
+                },
+                {
+                  id: 'VITALS',
+                  label: `Vitals & Health Tracker (${patientVitals.length})`,
+                  icon: <HeartPulse size={14} />
+                },
                 {
                   id: 'APPOINTMENTS',
                   label: `Appointments (${appointments.filter((a) => a.patient === selectedPatient.id).length})`,
@@ -2044,7 +2205,7 @@ export const AdminDashboard = () => {
                 },
                 {
                   id: 'REVIEWS',
-                  label: `Ratings & Reviews Given (${patientReviews.length})`,
+                  label: `Doctor Reviews (${patientReviews.length})`,
                   icon: <Star size={14} />
                 },
               ].map((tab) => (
@@ -2053,11 +2214,13 @@ export const AdminDashboard = () => {
                   type="button"
                   onClick={() => setPatientDetailTab(tab.id)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
+                    display: 'inline-flex', alignItems: 'center', gap: '6px',
                     padding: '7px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
                     background: patientDetailTab === tab.id ? 'rgba(14, 165, 233, 0.15)' : 'transparent',
                     color: patientDetailTab === tab.id ? 'var(--color-patient)' : 'var(--text-muted)',
                     border: patientDetailTab === tab.id ? '1px solid var(--color-patient)' : '1px solid transparent',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   {tab.icon} {tab.label}
@@ -2150,6 +2313,629 @@ export const AdminDashboard = () => {
                       <div><strong style={{ color: 'var(--text-dim)' }}>Phone:</strong> {selectedPatient.emergency_contact_phone || 'N/A'}</div>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* 2. Patient Health Records & Doctor Notes Tab */}
+              {patientDetailTab === 'RECORDS' && (
+                <div>
+                  {(() => {
+                    const patientConsultations = appointments.filter(
+                      (a) => a.patient === selectedPatient.id && a.consultation
+                    );
+                    if (patientConsultations.length === 0) {
+                      return (
+                        <div style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text-muted)' }}>
+                          <FileText size={36} style={{ opacity: 0.3, margin: '0 auto 10px' }} />
+                          <h4 style={{ margin: 0, fontWeight: 700, color: 'var(--heading-color)' }}>
+                            No Health Records or Doctor Consultation Notes Found
+                          </h4>
+                          <p style={{ margin: '6px 0 0', fontSize: '0.85rem' }}>
+                            Clinical notes, diagnoses, and vital assessments are automatically populated after completed doctor consultations.
+                          </p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                        {patientConsultations.map((apt) => {
+                          const consult = apt.consultation;
+                          const vitals = consult.vitals;
+                          const meds = consult.prescriptions || [];
+                          return (
+                            <div
+                              key={apt.id}
+                              style={{
+                                padding: '20px 22px',
+                                borderRadius: '14px',
+                                background: 'var(--surface-hover)',
+                                border: '1px solid var(--border-subtle)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '14px',
+                              }}
+                            >
+                              {/* Header: Doctor & Department & Date */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <div style={{
+                                    width: '38px', height: '38px', borderRadius: '10px',
+                                    background: 'rgba(16, 185, 129, 0.15)', color: '#10b981',
+                                    display: 'grid', placeItems: 'center', fontWeight: 800
+                                  }}>
+                                    <Stethoscope size={20} />
+                                  </div>
+                                  <div>
+                                    <strong style={{ fontSize: '1rem', color: 'var(--heading-color)' }}>
+                                      Dr. {apt.doctor_details?.full_name || 'Physician'}
+                                    </strong>
+                                    <span style={{ fontSize: '0.78rem', color: '#10b981', marginLeft: '8px', fontWeight: 700 }}>
+                                      {apt.doctor_profile?.department ? apt.doctor_profile.department.replace('_', ' ') : 'General Medicine'}
+                                    </span>
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                      Consultation conducted on {formatDateTime(apt.appointment_datetime)}
+                                    </div>
+                                  </div>
+                                </div>
+                                <span style={{
+                                  fontSize: '0.72rem', fontWeight: 800, padding: '3px 10px', borderRadius: '999px',
+                                  background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)',
+                                }}>
+                                  Completed Visit
+                                </span>
+                              </div>
+
+                              {/* Chief Complaint / Reason for visit */}
+                              {apt.reason_for_visit && (
+                                <div style={{ fontSize: '0.85rem' }}>
+                                  <strong style={{ color: 'var(--text-dim)' }}>Reason for Visit: </strong>
+                                  <span style={{ color: 'var(--text-main)' }}>{apt.reason_for_visit}</span>
+                                </div>
+                              )}
+
+                              {/* Clinical Symptoms & Diagnosis */}
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+                                <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'var(--bg-glass-card)', border: '1px solid var(--border-subtle)' }}>
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase' }}>Reported Symptoms</span>
+                                  <p style={{ margin: '4px 0 0', fontSize: '0.86rem', color: 'var(--text-main)', lineHeight: 1.45 }}>
+                                    {consult.symptoms || 'None recorded'}
+                                  </p>
+                                </div>
+                                <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'rgba(14, 165, 233, 0.08)', border: '1px solid rgba(14, 165, 233, 0.25)' }}>
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--color-patient)', textTransform: 'uppercase' }}>Clinical Diagnosis</span>
+                                  <p style={{ margin: '4px 0 0', fontSize: '0.88rem', fontWeight: 700, color: 'var(--heading-color)', lineHeight: 1.45 }}>
+                                    {consult.diagnosis || 'General assessment performed'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Doctor's Notes (Key User Requirement!) */}
+                              <div style={{
+                                padding: '14px 16px', borderRadius: '10px',
+                                background: 'rgba(139, 92, 246, 0.08)',
+                                border: '1px solid rgba(139, 92, 246, 0.3)',
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                  <FileText size={15} color="var(--color-admin)" />
+                                  <strong style={{ fontSize: '0.82rem', color: 'var(--color-admin)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                                    Doctor's Clinical Notes & Instructions
+                                  </strong>
+                                </div>
+                                <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-main)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                                  {consult.notes || 'No additional notes provided by physician.'}
+                                </p>
+                              </div>
+
+                              {/* Clinical Vitals during this consultation */}
+                              {vitals && (
+                                <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'var(--bg-glass-card)', border: '1px solid var(--border-subtle)' }}>
+                                  <div style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-dim)', marginBottom: '8px', textTransform: 'uppercase' }}>
+                                    Clinical Vitals Recorded at Consultation
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '0.82rem' }}>
+                                    {vitals.blood_pressure_systolic && (
+                                      <div><strong style={{ color: 'var(--text-dim)' }}>BP:</strong> <span style={{ fontWeight: 700, color: 'var(--heading-color)' }}>{vitals.blood_pressure_systolic}/{vitals.blood_pressure_diastolic || 80} mmHg</span></div>
+                                    )}
+                                    {vitals.pulse_rate && (
+                                      <div><strong style={{ color: 'var(--text-dim)' }}>Pulse:</strong> <span style={{ fontWeight: 700, color: 'var(--heading-color)' }}>{vitals.pulse_rate} bpm</span></div>
+                                    )}
+                                    {vitals.temperature && (
+                                      <div><strong style={{ color: 'var(--text-dim)' }}>Temp:</strong> <span style={{ fontWeight: 700, color: 'var(--heading-color)' }}>{vitals.temperature} °F</span></div>
+                                    )}
+                                    {vitals.weight_kg && (
+                                      <div><strong style={{ color: 'var(--text-dim)' }}>Weight:</strong> <span style={{ fontWeight: 700, color: 'var(--heading-color)' }}>{vitals.weight_kg} kg</span></div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Prescriptions prescribed during this consultation */}
+                              {meds.length > 0 && (
+                                <div>
+                                  <div style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-dim)', marginBottom: '8px', textTransform: 'uppercase' }}>
+                                    Prescriptions Issued During This Visit ({meds.length})
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
+                                    {meds.map((m, mIdx) => (
+                                      <div key={mIdx} style={{
+                                        padding: '10px 12px', borderRadius: '8px', background: 'var(--bg-glass-card)',
+                                        border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '8px',
+                                      }}>
+                                        <Pill size={16} color="var(--color-admin)" />
+                                        <div>
+                                          <strong style={{ fontSize: '0.85rem', color: 'var(--heading-color)' }}>{m.medication_name}</strong>
+                                          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                                            {m.dosage} · {m.frequency || 'As directed'} · {m.duration}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {consult.follow_up_date && (
+                                <div style={{ fontSize: '0.78rem', color: '#8b5cf6', fontWeight: 700 }}>
+                                  Follow-up recommended on: {new Date(consult.follow_up_date).toLocaleDateString()}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* 3. Patient Prescriptions & Pill Routine Tab */}
+              {patientDetailTab === 'PRESCRIPTIONS' && (
+                <div>
+                  {loadingPatientPrescriptions ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                      Loading patient prescriptions & pill routine...
+                    </div>
+                  ) : (() => {
+                    const meds = patientPrescriptions.length > 0
+                      ? patientPrescriptions
+                      : appointments
+                          .filter((a) => a.patient === selectedPatient.id)
+                          .flatMap((a) => (a.consultation?.prescriptions || []).map((p) => ({
+                            ...p,
+                            doctor: a.doctor_details?.full_name,
+                            doctor_dept: a.doctor_profile?.department,
+                            appointment_date: a.appointment_datetime,
+                          })));
+
+                    if (meds.length === 0) {
+                      return (
+                        <div style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text-muted)' }}>
+                          <Pill size={36} style={{ opacity: 0.3, margin: '0 auto 10px' }} />
+                          <h4 style={{ margin: 0, fontWeight: 700, color: 'var(--heading-color)' }}>No Prescriptions Found</h4>
+                          <p style={{ margin: '6px 0 0', fontSize: '0.85rem' }}>
+                            No active medications or pill routines have been recorded for this patient.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    const totalDosesTaken = meds.reduce((acc, p) => acc + (p.times_taken || 0), 0);
+                    const totalDaysScheduled = meds.reduce((acc, p) => {
+                      const num = parseInt(String(p.duration || '').replace(/[^0-9]/g, ''), 10);
+                      return acc + (isNaN(num) || num <= 0 ? 7 : num);
+                    }, 0);
+                    const adherenceRate = totalDaysScheduled > 0 ? Math.min(100, Math.round((totalDosesTaken / totalDaysScheduled) * 100)) : 0;
+
+                    return (
+                      <div>
+                        {/* Summary Metrics Ribbon */}
+                        <div style={{
+                          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                          gap: '12px', marginBottom: '20px',
+                        }}>
+                          <div style={{ padding: '14px 16px', borderRadius: '12px', background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 800 }}>ACTIVE MEDICATIONS</span>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--color-admin)', marginTop: '4px' }}>
+                              {meds.length}
+                            </div>
+                          </div>
+                          <div style={{ padding: '14px 16px', borderRadius: '12px', background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 800 }}>TOTAL DOSES MARKED TAKEN</span>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>
+                              {totalDosesTaken}
+                            </div>
+                          </div>
+                          <div style={{ padding: '14px 16px', borderRadius: '12px', background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontWeight: 800 }}>OVERALL ADHERENCE</span>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0ea5e9', marginTop: '4px' }}>
+                              {adherenceRate}%
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Prescriptions & Pill Routine Schedule */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {meds.map((p, pIdx) => {
+                            const parsedDuration = parseInt(String(p.duration || '').replace(/[^0-9]/g, ''), 10) || 7;
+                            const takenCount = p.times_taken || 0;
+                            const daysLeft = Math.max(0, parsedDuration - takenCount);
+                            const pct = parsedDuration > 0 ? Math.min(100, Math.round((takenCount / parsedDuration) * 100)) : 0;
+                            const isCompleted = daysLeft === 0;
+
+                            return (
+                              <div
+                                key={p.id || pIdx}
+                                style={{
+                                  padding: '18px 20px', borderRadius: '14px',
+                                  background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)',
+                                  display: 'flex', flexDirection: 'column', gap: '12px',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{
+                                      width: '42px', height: '42px', borderRadius: '10px',
+                                      background: isCompleted ? 'rgba(16, 185, 129, 0.15)' : 'rgba(139, 92, 246, 0.15)',
+                                      color: isCompleted ? '#10b981' : 'var(--color-admin)',
+                                      display: 'grid', placeItems: 'center',
+                                    }}>
+                                      <Pill size={22} />
+                                    </div>
+                                    <div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <strong style={{ fontSize: '1.05rem', color: 'var(--heading-color)' }}>
+                                          {p.medication_name}
+                                        </strong>
+                                        <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--color-admin)', padding: '2px 8px', borderRadius: '6px', background: 'rgba(139, 92, 246, 0.12)' }}>
+                                          {p.dosage || 'Standard Dose'}
+                                        </span>
+                                      </div>
+                                      <div style={{ fontSize: '0.82rem', color: '#10b981', fontWeight: 700, marginTop: '3px' }}>
+                                        Routine Timings: {p.frequency || 'Follow doctor directions'}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{
+                                      padding: '3px 10px', borderRadius: '999px', fontSize: '0.74rem', fontWeight: 800,
+                                      background: isCompleted ? 'rgba(16, 185, 129, 0.15)' : 'rgba(14, 165, 233, 0.15)',
+                                      color: isCompleted ? '#10b981' : '#0ea5e9',
+                                      border: `1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.3)' : 'rgba(14, 165, 233, 0.3)'}`,
+                                    }}>
+                                      {isCompleted ? 'Course Completed' : `${daysLeft} Days Left`}
+                                    </span>
+                                    <span style={{
+                                      padding: '3px 10px', borderRadius: '999px', fontSize: '0.74rem', fontWeight: 800,
+                                      background: 'rgba(16, 185, 129, 0.12)', color: '#10b981',
+                                    }}>
+                                      {takenCount} Marked Taken
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Adherence Progress bar */}
+                                <div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                                    <span>Adherence Progress: {takenCount} of {parsedDuration} doses marked taken</span>
+                                    <strong style={{ color: isCompleted ? '#10b981' : 'var(--color-admin)' }}>{pct}% Complete</strong>
+                                  </div>
+                                  <div style={{ height: '8px', borderRadius: '999px', background: 'var(--border-subtle)', overflow: 'hidden' }}>
+                                    <div style={{
+                                      height: '100%', width: `${pct}%`,
+                                      background: isCompleted ? '#10b981' : 'linear-gradient(90deg, #8b5cf6, #10b981)',
+                                      borderRadius: '999px', transition: 'width 0.3s ease',
+                                    }} />
+                                  </div>
+                                </div>
+
+                                {/* Instructions & Details */}
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px',
+                                  paddingTop: '8px', borderTop: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: 'var(--text-muted)',
+                                }}>
+                                  <div>
+                                    <strong style={{ color: 'var(--text-dim)' }}>Instructions: </strong>
+                                    <span>{p.instructions || 'Follow prescribed timing instructions with food/water.'}</span>
+                                  </div>
+                                  {p.doctor && (
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+                                      Prescribed by Dr. {p.doctor} {p.appointment_date ? `on ${new Date(p.appointment_date).toLocaleDateString()}` : ''}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* 4. Patient Care Messages Tab */}
+              {patientDetailTab === 'MESSAGES' && (
+                <div>
+                  {loadingPatientMessages ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                      Loading patient care messages...
+                    </div>
+                  ) : patientMessages.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--text-muted)' }}>
+                      <MessageSquare size={36} style={{ opacity: 0.3, margin: '0 auto 10px' }} />
+                      <h4 style={{ margin: 0, fontWeight: 700, color: 'var(--heading-color)' }}>No Care Messages Found</h4>
+                      <p style={{ margin: '6px 0 0', fontSize: '0.85rem' }}>
+                        No direct messages have been exchanged between this patient and their doctors yet.
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Doctor selector filter */}
+                      {(() => {
+                        const doctorPartners = {};
+                        patientMessages.forEach((m) => {
+                          const other = m.sender === selectedPatient.id ? m.recipient_details : m.sender_details;
+                          if (other && other.id) doctorPartners[other.id] = other.full_name || other.email;
+                        });
+                        const docIds = Object.keys(doctorPartners);
+
+                        const filteredMsgs = selectedMessageDoctor === 'ALL'
+                          ? patientMessages
+                          : patientMessages.filter(
+                              (m) => m.sender === selectedMessageDoctor || m.recipient === selectedMessageDoctor
+                            );
+
+                        return (
+                          <div>
+                            {docIds.length > 1 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', overflowX: 'auto', paddingBottom: '4px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedMessageDoctor('ALL')}
+                                  style={{
+                                    padding: '5px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
+                                    background: selectedMessageDoctor === 'ALL' ? 'var(--color-primary)' : 'var(--surface-hover)',
+                                    color: selectedMessageDoctor === 'ALL' ? '#fff' : 'var(--text-muted)',
+                                    border: '1px solid var(--border-subtle)',
+                                  }}
+                                >
+                                  All Doctors ({patientMessages.length})
+                                </button>
+                                {docIds.map((dId) => (
+                                  <button
+                                    key={dId}
+                                    type="button"
+                                    onClick={() => setSelectedMessageDoctor(dId)}
+                                    style={{
+                                      padding: '5px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
+                                      background: selectedMessageDoctor === dId ? 'var(--color-primary)' : 'var(--surface-hover)',
+                                      color: selectedMessageDoctor === dId ? '#fff' : 'var(--text-muted)',
+                                      border: '1px solid var(--border-subtle)',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    Dr. {doctorPartners[dId]}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Messages stream */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                              {filteredMsgs.map((msg) => {
+                                const isFromPatient = msg.sender === selectedPatient.id;
+                                return (
+                                  <div
+                                    key={msg.id}
+                                    style={{
+                                      padding: '14px 18px', borderRadius: '12px',
+                                      background: isFromPatient ? 'rgba(14, 165, 233, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+                                      border: isFromPatient ? '1px solid rgba(14, 165, 233, 0.25)' : '1px solid rgba(16, 185, 129, 0.25)',
+                                      display: 'flex', flexDirection: 'column', gap: '6px',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{
+                                          fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px',
+                                          background: isFromPatient ? '#0ea5e9' : '#10b981', color: '#fff',
+                                        }}>
+                                          {isFromPatient ? 'PATIENT' : 'DOCTOR'}
+                                        </span>
+                                        <strong style={{ fontSize: '0.88rem', color: 'var(--heading-color)' }}>
+                                          {msg.sender_details?.full_name || (isFromPatient ? selectedPatient.full_name : 'Physician')}
+                                        </strong>
+                                        <span style={{ fontSize: '0.76rem', color: 'var(--text-dim)' }}>
+                                          to {msg.recipient_details?.full_name || 'Care Team'}
+                                        </span>
+                                      </div>
+                                      <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
+                                        {new Date(msg.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                    </div>
+                                    {msg.subject && (
+                                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--heading-color)' }}>
+                                        Subject: {msg.subject}
+                                      </div>
+                                    )}
+                                    <p style={{ margin: 0, fontSize: '0.86rem', color: 'var(--text-main)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                                      {msg.content}
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 5. Patient Vitals & Health Tracker Tab */}
+              {patientDetailTab === 'VITALS' && (
+                <div>
+                  {loadingPatientVitals ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                      Loading patient vitals & health tracker data...
+                    </div>
+                  ) : (() => {
+                    const logs = patientVitals;
+                    const latest = logs[0] || {};
+                    const consultVitals = appointments
+                      .filter((a) => a.patient === selectedPatient.id && a.consultation?.vitals)
+                      .map((a) => ({
+                        date: a.appointment_datetime,
+                        doctor: a.doctor_details?.full_name,
+                        vitals: a.consultation.vitals,
+                      }));
+
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        {/* Summary Metrics Cards */}
+                        <div style={{
+                          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px',
+                        }}>
+                          <div style={{ padding: '14px', borderRadius: '12px', background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-dim)', fontSize: '0.72rem', fontWeight: 800 }}>
+                              <HeartPulse size={14} color="#ef4444" /> BLOOD PRESSURE
+                            </div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#ef4444', marginTop: '6px' }}>
+                              {latest.blood_pressure_systolic ? `${latest.blood_pressure_systolic}/${latest.blood_pressure_diastolic || 80}` : '120/80'}
+                              <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', marginLeft: '4px' }}>mmHg</span>
+                            </div>
+                          </div>
+
+                          <div style={{ padding: '14px', borderRadius: '12px', background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-dim)', fontSize: '0.72rem', fontWeight: 800 }}>
+                              <Activity size={14} color="#10b981" /> HEART RATE
+                            </div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#10b981', marginTop: '6px' }}>
+                              {latest.heart_rate || 72}
+                              <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', marginLeft: '4px' }}>bpm</span>
+                            </div>
+                          </div>
+
+                          <div style={{ padding: '14px', borderRadius: '12px', background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-dim)', fontSize: '0.72rem', fontWeight: 800 }}>
+                              <Droplets size={14} color="#8b5cf6" /> BLOOD GLUCOSE
+                            </div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#8b5cf6', marginTop: '6px' }}>
+                              {latest.blood_glucose || 98}
+                              <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', marginLeft: '4px' }}>mg/dL</span>
+                            </div>
+                          </div>
+
+                          <div style={{ padding: '14px', borderRadius: '12px', background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-dim)', fontSize: '0.72rem', fontWeight: 800 }}>
+                              <Thermometer size={14} color="#f59e0b" /> BODY TEMP
+                            </div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#f59e0b', marginTop: '6px' }}>
+                              {latest.temperature || '98.6'}
+                              <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', marginLeft: '4px' }}>°F</span>
+                            </div>
+                          </div>
+
+                          <div style={{ padding: '14px', borderRadius: '12px', background: 'var(--surface-hover)', border: '1px solid var(--border-subtle)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-dim)', fontSize: '0.72rem', fontWeight: 800 }}>
+                              <Activity size={14} color="#0ea5e9" /> SPO2 OXYGEN
+                            </div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0ea5e9', marginTop: '6px' }}>
+                              {latest.oxygen_saturation || 99}
+                              <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', marginLeft: '4px' }}>%</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Complete Chronological Vitals History Table */}
+                        <div style={{
+                          background: 'var(--surface-hover)', borderRadius: '14px',
+                          border: '1px solid var(--border-subtle)', overflow: 'hidden',
+                        }}>
+                          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <strong style={{ fontSize: '0.92rem', color: 'var(--heading-color)' }}>
+                              Chronological Vitals & Health Tracker Logs ({logs.length + consultVitals.length} Recorded Entries)
+                            </strong>
+                          </div>
+                          {logs.length === 0 && consultVitals.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-muted)' }}>
+                              No vitals logs recorded yet for this patient.
+                            </div>
+                          ) : (
+                            <div style={{ overflowX: 'auto' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.84rem' }}>
+                                <thead>
+                                  <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontSize: '0.76rem', background: 'var(--bg-glass-card)' }}>
+                                    <th style={{ padding: '10px 16px' }}>Date & Time</th>
+                                    <th style={{ padding: '10px 14px' }}>Blood Pressure</th>
+                                    <th style={{ padding: '10px 14px' }}>Heart Rate</th>
+                                    <th style={{ padding: '10px 14px' }}>Blood Glucose</th>
+                                    <th style={{ padding: '10px 14px' }}>SpO2</th>
+                                    <th style={{ padding: '10px 14px' }}>Weight</th>
+                                    <th style={{ padding: '10px 16px' }}>Log Source</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {logs.map((l) => (
+                                    <tr key={l.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                                      <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--heading-color)' }}>
+                                        {new Date(l.recorded_at).toLocaleDateString()} {new Date(l.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </td>
+                                      <td style={{ padding: '12px 14px', color: '#ef4444', fontWeight: 700 }}>
+                                        {l.blood_pressure_systolic ? `${l.blood_pressure_systolic}/${l.blood_pressure_diastolic || 80} mmHg` : '—'}
+                                      </td>
+                                      <td style={{ padding: '12px 14px', color: '#10b981', fontWeight: 700 }}>
+                                        {l.heart_rate ? `${l.heart_rate} bpm` : '—'}
+                                      </td>
+                                      <td style={{ padding: '12px 14px', color: '#8b5cf6', fontWeight: 700 }}>
+                                        {l.blood_glucose ? `${l.blood_glucose} mg/dL` : '—'}
+                                      </td>
+                                      <td style={{ padding: '12px 14px', color: '#0ea5e9', fontWeight: 700 }}>
+                                        {l.oxygen_saturation ? `${l.oxygen_saturation}%` : '—'}
+                                      </td>
+                                      <td style={{ padding: '12px 14px', color: 'var(--text-main)' }}>
+                                        {l.weight ? `${l.weight} kg` : '—'}
+                                      </td>
+                                      <td style={{ padding: '12px 16px' }}>
+                                        <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(14, 165, 233, 0.12)', color: '#0ea5e9', fontWeight: 700 }}>
+                                          Patient Home Log
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  {consultVitals.map((cv, cvIdx) => (
+                                    <tr key={`cv-${cvIdx}`} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                                      <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--heading-color)' }}>
+                                        {new Date(cv.date).toLocaleDateString()} {new Date(cv.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </td>
+                                      <td style={{ padding: '12px 14px', color: '#ef4444', fontWeight: 700 }}>
+                                        {cv.vitals.blood_pressure_systolic ? `${cv.vitals.blood_pressure_systolic}/${cv.vitals.blood_pressure_diastolic || 80} mmHg` : '—'}
+                                      </td>
+                                      <td style={{ padding: '12px 14px', color: '#10b981', fontWeight: 700 }}>
+                                        {cv.vitals.pulse_rate ? `${cv.vitals.pulse_rate} bpm` : '—'}
+                                      </td>
+                                      <td style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>—</td>
+                                      <td style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>—</td>
+                                      <td style={{ padding: '12px 14px', color: 'var(--text-main)' }}>
+                                        {cv.vitals.weight_kg ? `${cv.vitals.weight_kg} kg` : '—'}
+                                      </td>
+                                      <td style={{ padding: '12px 16px' }}>
+                                        <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 700 }}>
+                                          Dr. {cv.doctor || 'Doctor'} Visit
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 

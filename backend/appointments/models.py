@@ -158,6 +158,9 @@ class Prescription(models.Model):
     frequency = models.CharField(max_length=100, blank=True, default='', help_text='e.g. Twice daily')
     duration = models.CharField(max_length=100, blank=True, default='', help_text='e.g. 7 days')
     instructions = models.TextField(blank=True, default='', help_text='Special instructions, e.g. take with food')
+    times_taken = models.PositiveIntegerField(default=0)
+    last_taken_at = models.DateTimeField(null=True, blank=True)
+    taken_dates = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

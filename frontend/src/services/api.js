@@ -76,6 +76,7 @@ export const authService = {
   createBroadcast: async (data) => (await api.post('/auth/broadcasts/', data)).data,
   updateBroadcast: async (id, data) => (await api.patch(`/auth/broadcasts/${id}/`, data)).data,
   deleteBroadcast: async (id) => (await api.delete(`/auth/broadcasts/${id}/`)).data,
+  dismissBroadcast: async (id) => (await api.post(`/auth/broadcasts/${id}/dismiss/`)).data,
 };
 
 // ── Appointments Service ──────────────────────────────────────────────────────
@@ -141,7 +142,10 @@ export const appointmentsService = {
   createVitalsLog: async (data) => (await api.post('/appointments/vitals-logs/', data)).data,
   deleteVitalsLog: async (id) => (await api.delete(`/appointments/vitals-logs/${id}/`)).data,
 
-  // ── Prescription Refills ────────────────────────────────────────────────────
+  // ── Prescription Refills & Prescriptions ───────────────────────────────────
+  getPrescriptions: async (params = {}) => (await api.get('/appointments/prescriptions/', { params })).data,
+  markPrescriptionTaken: async (id, data = {}) => (await api.post(`/appointments/prescriptions/${id}/mark-taken/`, data)).data,
+  unmarkPrescriptionTaken: async (id, data = {}) => (await api.post(`/appointments/prescriptions/${id}/unmark-taken/`, data)).data,
   getRefills: async () => (await api.get('/appointments/refills/')).data,
   requestRefill: async (data) => (await api.post('/appointments/refills/', data)).data,
   decideRefill: async (id, decision, doctorResponse = '') =>

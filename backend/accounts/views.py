@@ -13,6 +13,7 @@ from datetime import timedelta
 import secrets
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -602,10 +603,16 @@ class HospitalBroadcastViewSet(viewsets.ModelViewSet):
         if user.role == UserRole.ADMIN:
             return HospitalBroadcast.objects.all().order_by("-created_at")
         elif user.role == UserRole.DOCTOR:
-            return HospitalBroadcast.objects.filter(is_active=True, target_audience__in=["ALL", "DOCTOR"]).order_by("-created_at")
+            return HospitalBroadcast.objects.filter(is_active=True, target_audience__in=["ALL", "DOCTOR"]).exclude(dismissed_by=user).order_by("-created_at")
         elif user.role == UserRole.PATIENT:
-            return HospitalBroadcast.objects.filter(is_active=True, target_audience__in=["ALL", "PATIENT"]).order_by("-created_at")
-        return HospitalBroadcast.objects.filter(is_active=True, target_audience="ALL").order_by("-created_at")
+            return HospitalBroadcast.objects.filter(is_active=True, target_audience__in=["ALL", "PATIENT"]).exclude(dismissed_by=user).order_by("-created_at")
+        return HospitalBroadcast.objects.filter(is_active=True, target_audience="ALL").exclude(dismissed_by=user).order_by("-created_at")
+
+    @action(detail=True, methods=["post"], url_path="dismiss")
+    def dismiss(self, request, pk=None):
+        broadcast = self.get_object()
+        broadcast.dismissed_by.add(request.user)
+        return Response({"status": "dismissed", "broadcast_id": str(broadcast.id)})
 
     def perform_create(self, serializer):
         if self.request.user.role != UserRole.ADMIN:

@@ -17,6 +17,7 @@ from .views import (
     PrescriptionRefillViewSet,
     NotificationViewSet,
     DoctorReviewViewSet,
+    PrescriptionViewSet,
 )
 
 router = DefaultRouter()
@@ -26,6 +27,7 @@ router.register(r'messages', CareMessageViewSet, basename='message')
 router.register(r'lab-tests', LabTestViewSet, basename='lab-test')
 router.register(r'vitals-logs', PatientVitalsLogViewSet, basename='vitals-log')
 router.register(r'refills', PrescriptionRefillViewSet, basename='refill')
+router.register(r'prescriptions', PrescriptionViewSet, basename='prescription')
 router.register(r'schedules', DoctorScheduleViewSet, basename='schedule')
 router.register(r'leaves', DoctorLeaveViewSet, basename='leave')
 router.register(r'', AppointmentViewSet, basename='appointment')
