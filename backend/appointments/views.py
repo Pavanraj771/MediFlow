@@ -693,21 +693,114 @@ class LabTestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        patient_id = self.request.query_params.get('patient_id')
         if user.role == UserRole.PATIENT:
             return LabTest.objects.filter(patient=user).select_related('patient', 'doctor', 'appointment')
         elif user.role == UserRole.DOCTOR:
-            patient_id = self.request.query_params.get('patient_id')
             if patient_id:
                 return LabTest.objects.filter(patient_id=patient_id).select_related('patient', 'doctor', 'appointment')
             return LabTest.objects.filter(doctor=user).select_related('patient', 'doctor', 'appointment')
-        return LabTest.objects.all().select_related('patient', 'doctor', 'appointment')
+        qs = LabTest.objects.all().select_related('patient', 'doctor', 'appointment')
+        if patient_id:
+            qs = qs.filter(patient_id=patient_id)
+        return qs
 
     def perform_create(self, serializer):
         user = self.request.user
         if user.role == UserRole.DOCTOR:
-            serializer.save(doctor=user)
+            lab = serializer.save(doctor=user)
+        elif user.role == UserRole.ADMIN:
+            lab = serializer.save()
         else:
-            serializer.save(patient=user)
+            lab = serializer.save(patient=user)
+
+        # Notify patient if ordered by a doctor or hospital admin
+        if lab.patient and lab.patient != user:
+            try:
+                doc_name = f"Dr. {lab.doctor.full_name}" if lab.doctor else "Hospital Clinical Team"
+                instr_note = f" Instructions: {lab.instructions}" if lab.instructions else " Check pre-test requirements in your Lab Reports."
+                Notification.objects.create(
+                    recipient=lab.patient,
+                    title=f"New Lab Test Ordered: {lab.test_name}",
+                    message=f"{doc_name} ordered a {lab.test_name} ({lab.category}).{instr_note}",
+                    notification_type=NotificationType.LAB_RESULT,
+                    related_id=str(lab.id),
+                )
+            except Exception:
+                pass
+
+    def perform_update(self, serializer):
+        old_instance = self.get_object()
+        old_status = old_instance.status
+        old_results = (old_instance.results_summary or '').strip()
+        old_notes = (old_instance.doctor_notes or '').strip()
+        old_flag = old_instance.abnormal_flag
+
+        updated_lab = serializer.save()
+
+        new_status = updated_lab.status
+        new_results = (updated_lab.results_summary or '').strip()
+        new_notes = (updated_lab.doctor_notes or '').strip()
+        new_flag = updated_lab.abnormal_flag
+        patient = updated_lab.patient
+
+        if not patient:
+            return
+
+        doc_name = f"Dr. {updated_lab.doctor.full_name}" if updated_lab.doctor else "Doctor"
+
+        # 1. Doctor changed or added clinical notes
+        if new_notes and new_notes != old_notes:
+            try:
+                preview = new_notes if len(new_notes) <= 120 else f"{new_notes[:117]}..."
+                Notification.objects.create(
+                    recipient=patient,
+                    title=f"Clinical Notes Updated: {updated_lab.test_name}",
+                    message=f"{doc_name} updated clinical advice on your {updated_lab.test_name}: \"{preview}\"",
+                    notification_type=NotificationType.LAB_RESULT,
+                    related_id=str(updated_lab.id),
+                )
+            except Exception:
+                pass
+
+        # 2. Critical Alert Flagged
+        elif new_flag == 'CRITICAL' and old_flag != 'CRITICAL':
+            try:
+                Notification.objects.create(
+                    recipient=patient,
+                    title=f"URGENT: Critical Lab Alert - {updated_lab.test_name}",
+                    message=f"Critical findings have been flagged on your {updated_lab.test_name}. Please inspect the report immediately and consult your physician.",
+                    notification_type=NotificationType.LAB_RESULT,
+                    related_id=str(updated_lab.id),
+                )
+            except Exception:
+                pass
+
+        # 3. Results completed / uploaded / results_summary updated
+        elif (new_results and new_results != old_results) or (old_status != new_status and new_status in ['COMPLETED', 'REVIEWED']):
+            try:
+                Notification.objects.create(
+                    recipient=patient,
+                    title=f"Lab Results Ready: {updated_lab.test_name}",
+                    message=f"Your diagnostic results for {updated_lab.test_name} are now available in your Lab Reports. Status: {updated_lab.get_status_display()}.",
+                    notification_type=NotificationType.LAB_RESULT,
+                    related_id=str(updated_lab.id),
+                )
+            except Exception:
+                pass
+
+        # 4. Sample Collected status transition
+        elif old_status != 'SAMPLE_COLLECTED' and new_status == 'SAMPLE_COLLECTED':
+            try:
+                Notification.objects.create(
+                    recipient=patient,
+                    title=f"Sample Collected: {updated_lab.test_name}",
+                    message=f"Your sample for {updated_lab.test_name} has been collected and is currently being processed by the laboratory.",
+                    notification_type=NotificationType.LAB_RESULT,
+                    related_id=str(updated_lab.id),
+                )
+            except Exception:
+                pass
 
 
 # ── Patient Vitals Log ViewSet ────────────────────────────────────────────────

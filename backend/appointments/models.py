@@ -283,6 +283,7 @@ class NotificationType(models.TextChoices):
     APPOINTMENT_REMINDER = "APPOINTMENT_REMINDER", "30-Min Reminder"
     CARE_MESSAGE = "CARE_MESSAGE", "Care Message"
     ADMIN_BROADCAST = "ADMIN_BROADCAST", "Admin Announcement"
+    LAB_RESULT = "LAB_RESULT", "Lab Test Notification"
     GENERAL = "GENERAL", "General Notification"
 
 

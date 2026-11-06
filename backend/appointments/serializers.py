@@ -306,6 +306,9 @@ class LabTestSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'patient_details', 'doctor_details', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'patient': {'required': False},
+        }
 
 
 # ── Patient Vitals Log Serializer ─────────────────────────────────────────────

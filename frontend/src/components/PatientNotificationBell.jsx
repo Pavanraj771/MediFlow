@@ -13,7 +13,8 @@ import {
   Info,
   Search,
   Filter,
-  MessageSquare
+  MessageSquare,
+  FlaskConical
 } from 'lucide-react';
 import { appointmentsService } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
@@ -139,6 +140,8 @@ export const PatientNotificationBell = () => {
       } else {
         navigate(item.related_id ? `/patient/messages?doctorId=${item.related_id}` : '/patient/messages');
       }
+    } else if (item.notification_type === 'LAB_RESULT') {
+      navigate('/patient/lab-reports');
     }
   };
 
@@ -185,6 +188,12 @@ export const PatientNotificationBell = () => {
           icon: <Megaphone size={16} />,
           bg: isDark ? 'rgba(168, 85, 247, 0.2)' : 'rgba(124, 58, 237, 0.15)',
           color: isDark ? '#c084fc' : '#7c3aed',
+        };
+      case 'LAB_RESULT':
+        return {
+          icon: <FlaskConical size={16} />,
+          bg: isDark ? 'rgba(14, 165, 233, 0.2)' : 'rgba(14, 165, 233, 0.15)',
+          color: isDark ? '#38bdf8' : '#0284c7',
         };
       default:
         return {

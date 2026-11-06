@@ -136,6 +136,65 @@ export const AdminDashboard = () => {
   });
   const [isPublishingBroadcast, setIsPublishingBroadcast] = useState(false);
 
+  // Admin Lab Test Edit & Order States
+  const [adminEditingLab, setAdminEditingLab] = useState(null);
+  const [adminLabForm, setAdminLabForm] = useState({
+    status: 'ORDERED',
+    abnormal_flag: 'NORMAL',
+    results_summary: '',
+    doctor_notes: '',
+    file_name: '',
+  });
+  const [isSavingAdminLab, setIsSavingAdminLab] = useState(false);
+  const [showAdminOrderModal, setShowAdminOrderModal] = useState(false);
+  const [adminOrderForm, setAdminOrderForm] = useState({
+    test_name: '',
+    category: 'BLOOD',
+    instructions: '',
+    abnormal_flag: 'NORMAL',
+  });
+  const [isOrderingAdminLab, setIsOrderingAdminLab] = useState(false);
+
+  const handleAdminSaveLab = async (e) => {
+    e.preventDefault();
+    if (!adminEditingLab) return;
+    setIsSavingAdminLab(true);
+    try {
+      const updated = await appointmentsService.updateLabTest(adminEditingLab.id, adminLabForm);
+      setLabTests((prev) => prev.map((t) => (t.id === adminEditingLab.id ? updated : t)));
+      setAdminEditingLab(null);
+    } catch (err) {
+      console.error('Failed to update lab test:', err);
+      alert('Failed to update lab test.');
+    } finally {
+      setIsSavingAdminLab(false);
+    }
+  };
+
+  const handleAdminOrderLab = async (e) => {
+    e.preventDefault();
+    if (!adminOrderForm.test_name.trim() || !selectedPatient) return;
+    setIsOrderingAdminLab(true);
+    try {
+      const created = await appointmentsService.createLabTest({
+        patient: selectedPatient.id,
+        test_name: adminOrderForm.test_name.trim(),
+        category: adminOrderForm.category,
+        instructions: adminOrderForm.instructions.trim(),
+        abnormal_flag: adminOrderForm.abnormal_flag,
+        status: 'ORDERED',
+      });
+      setLabTests((prev) => [created, ...prev]);
+      setShowAdminOrderModal(false);
+      setAdminOrderForm({ test_name: '', category: 'BLOOD', instructions: '', abnormal_flag: 'NORMAL' });
+    } catch (err) {
+      console.error('Failed to order lab test:', err);
+      alert('Failed to order lab test.');
+    } finally {
+      setIsOrderingAdminLab(false);
+    }
+  };
+
   // Search and filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [patientStatusFilter, setPatientStatusFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'BLOCKED'
@@ -2184,6 +2243,11 @@ export const AdminDashboard = () => {
                   icon: <FileText size={14} />
                 },
                 {
+                  id: 'LABS',
+                  label: `Lab Reports (${labTests.filter((t) => t.patient === selectedPatient.id || t.patient_details?.id === selectedPatient.id).length})`,
+                  icon: <FlaskConical size={14} />
+                },
+                {
                   id: 'PRESCRIPTIONS',
                   label: `Prescriptions & Pill Routine (${(patientPrescriptions.length > 0 ? patientPrescriptions : appointments.filter((a) => a.patient === selectedPatient.id).flatMap((a) => a.consultation?.prescriptions || [])).length})`,
                   icon: <Pill size={14} />
@@ -2487,6 +2551,245 @@ export const AdminDashboard = () => {
                   })()}
                 </div>
               )}
+
+              {/* Lab Reports Tab */}
+              {patientDetailTab === 'LABS' && (
+                <div>
+                  {(() => {
+                    const patientLabs = labTests.filter(
+                      (t) => t.patient === selectedPatient.id || t.patient_details?.id === selectedPatient.id
+                    );
+
+                    return (
+                      <div>
+                        {/* Top Action Bar */}
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: '12px',
+                          marginBottom: '16px',
+                          padding: '12px 16px',
+                          borderRadius: '12px',
+                          background: 'var(--surface-hover)',
+                          border: '1px solid var(--border-subtle)',
+                        }}>
+                          <div style={{ fontSize: '0.86rem', color: 'var(--text-muted)' }}>
+                            Total Diagnostic Tests for this patient: <strong style={{ color: 'var(--text-main)' }}>{patientLabs.length}</strong>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowAdminOrderModal(true)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px 16px',
+                              borderRadius: '8px',
+                              background: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
+                              border: 'none',
+                              color: '#fff',
+                              fontSize: '0.82rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 8px rgba(14, 165, 233, 0.25)',
+                            }}
+                          >
+                            <Plus size={14} /> Requisition Diagnostic Test
+                          </button>
+                        </div>
+
+                        {patientLabs.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                            <FlaskConical size={34} style={{ opacity: 0.3, margin: '0 auto 10px' }} />
+                            <p style={{ margin: 0, fontWeight: 700 }}>No lab test reports found for this patient.</p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: 'var(--text-dim)' }}>
+                              Click "Requisition Diagnostic Test" above to order blood, imaging, or pathology tests.
+                            </p>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                            {patientLabs.map((lab) => {
+                              const statusBadges = {
+                                ORDERED: { label: 'Test Ordered', bg: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: 'rgba(245, 158, 11, 0.3)' },
+                                SAMPLE_COLLECTED: { label: 'Sample Collected', bg: 'rgba(14, 165, 233, 0.12)', color: '#0ea5e9', border: 'rgba(14, 165, 233, 0.3)' },
+                                COMPLETED: { label: 'Results Ready', bg: 'rgba(139, 92, 246, 0.12)', color: '#8b5cf6', border: 'rgba(139, 92, 246, 0.3)' },
+                                REVIEWED: { label: 'Doctor Reviewed', bg: 'rgba(16, 185, 129, 0.12)', color: '#10b981', border: 'rgba(16, 185, 129, 0.3)' },
+                              };
+                              const flagBadges = {
+                                NORMAL: { label: 'Normal Limits', bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'rgba(16, 185, 129, 0.25)' },
+                                HIGH: { label: 'Elevated / High', bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: 'rgba(245, 158, 11, 0.25)' },
+                                LOW: { label: 'Below Normal / Low', bg: 'rgba(14, 165, 233, 0.1)', color: '#0ea5e9', border: 'rgba(14, 165, 233, 0.25)' },
+                                CRITICAL: { label: 'Critical Alert', bg: 'rgba(239, 68, 68, 0.14)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.35)' },
+                              };
+
+                              const sBadge = statusBadges[lab.status] || statusBadges.ORDERED;
+                              const fBadge = flagBadges[lab.abnormal_flag] || flagBadges.NORMAL;
+
+                              return (
+                                <div
+                                  key={lab.id}
+                                  style={{
+                                    padding: '18px 20px',
+                                    borderRadius: '14px',
+                                    background: 'var(--surface-hover)',
+                                    border: '1px solid var(--border-subtle)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '12px',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                                    <div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                        <strong style={{ fontSize: '1rem', color: 'var(--heading-color)' }}>
+                                          {lab.test_name}
+                                        </strong>
+                                        <span style={{
+                                          fontSize: '0.72rem',
+                                          fontWeight: 800,
+                                          padding: '2px 8px',
+                                          borderRadius: '6px',
+                                          background: 'rgba(99, 102, 241, 0.12)',
+                                          color: '#6366f1',
+                                          border: '1px solid rgba(99, 102, 241, 0.25)',
+                                        }}>
+                                          {lab.category || 'BLOOD'}
+                                        </span>
+                                        <span style={{
+                                          fontSize: '0.72rem',
+                                          fontWeight: 700,
+                                          padding: '2px 8px',
+                                          borderRadius: '6px',
+                                          background: sBadge.bg,
+                                          color: sBadge.color,
+                                          border: `1px solid ${sBadge.border}`,
+                                        }}>
+                                          {sBadge.label}
+                                        </span>
+                                        <span style={{
+                                          fontSize: '0.72rem',
+                                          fontWeight: 700,
+                                          padding: '2px 8px',
+                                          borderRadius: '6px',
+                                          background: fBadge.bg,
+                                          color: fBadge.color,
+                                          border: `1px solid ${fBadge.border}`,
+                                        }}>
+                                          {fBadge.label}
+                                        </span>
+                                      </div>
+                                      <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                        Ordered by: <strong style={{ color: 'var(--text-main)' }}>Dr. {lab.doctor_details?.full_name || 'Assigned Physician'}</strong> · Ordered on: {new Date(lab.created_at).toLocaleDateString()}
+                                      </p>
+                                    </div>
+
+                                    {/* Action buttons */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAdminEditingLab(lab);
+                                          setAdminLabForm({
+                                            status: lab.status || 'ORDERED',
+                                            abnormal_flag: lab.abnormal_flag || 'NORMAL',
+                                            results_summary: lab.results_summary || '',
+                                            doctor_notes: lab.doctor_notes || '',
+                                            file_name: lab.file_name || '',
+                                          });
+                                        }}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '6px',
+                                          padding: '6px 12px',
+                                          borderRadius: '8px',
+                                          background: 'rgba(14, 165, 233, 0.12)',
+                                          border: '1px solid rgba(14, 165, 233, 0.3)',
+                                          color: '#0ea5e9',
+                                          fontSize: '0.78rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        <Edit size={13} />
+                                        <span>Enter Results / Notes</span>
+                                      </button>
+
+                                      {lab.file_name && (
+                                        <div style={{
+                                          display: 'flex', alignItems: 'center', gap: '6px',
+                                          fontSize: '0.78rem', color: 'var(--color-primary)', fontWeight: 600,
+                                          padding: '4px 10px', borderRadius: '6px', background: 'var(--bg-glass-card)',
+                                          border: '1px solid var(--border-subtle)',
+                                        }}>
+                                          <FileText size={13} /> {lab.file_name}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                              {lab.instructions && (
+                                <div style={{
+                                  padding: '8px 12px',
+                                  borderRadius: '8px',
+                                  background: 'rgba(245, 158, 11, 0.08)',
+                                  border: '1px solid rgba(245, 158, 11, 0.2)',
+                                  fontSize: '0.82rem',
+                                  color: 'var(--text-main)',
+                                }}>
+                                  <strong style={{ color: '#f59e0b', fontSize: '0.75rem', textTransform: 'uppercase' }}>Preparation Instructions: </strong>
+                                  {lab.instructions}
+                                </div>
+                              )}
+
+                              {lab.results_summary ? (
+                                <div style={{
+                                  padding: '12px 14px',
+                                  borderRadius: '10px',
+                                  background: 'var(--bg-glass-card)',
+                                  border: '1px solid var(--border-subtle)',
+                                }}>
+                                  <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-dim)', marginBottom: '4px', textTransform: 'uppercase' }}>
+                                    Laboratory Findings & Metrics
+                                  </div>
+                                  <p style={{ margin: 0, fontSize: '0.86rem', color: 'var(--text-main)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                                    {lab.results_summary}
+                                  </p>
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                                  Laboratory findings pending entry or specimen collection.
+                                </div>
+                              )}
+
+                              {lab.doctor_notes && (
+                                <div style={{
+                                  padding: '12px 14px',
+                                  borderRadius: '10px',
+                                  background: 'rgba(16, 185, 129, 0.06)',
+                                  border: '1px solid rgba(16, 185, 129, 0.2)',
+                                }}>
+                                  <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#10b981', marginBottom: '4px', textTransform: 'uppercase' }}>
+                                    Doctor's Clinical Interpretation & Advice
+                                  </div>
+                                  <p style={{ margin: 0, fontSize: '0.86rem', color: 'var(--text-main)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                                    {lab.doctor_notes}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
               {/* 3. Patient Prescriptions & Pill Routine Tab */}
               {patientDetailTab === 'PRESCRIPTIONS' && (
@@ -4005,6 +4308,313 @@ export const AdminDashboard = () => {
                   }}
                 >
                   {isSavingDoctor ? 'Saving...' : 'Save Profile'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: ADMIN ENTER / EDIT LAB TEST RESULTS & NOTES */}
+      {adminEditingLab && (
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)',
+          backdropFilter: 'blur(5px)', zIndex: 10003,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
+        }}>
+          <div style={{
+            background: 'var(--bg-glass-card)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-xl)',
+            width: '100%',
+            maxWidth: '560px',
+            overflow: 'hidden',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
+          }}>
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid var(--border-subtle)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'var(--surface-hover)',
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                  Manage Diagnostic Report
+                </h3>
+                <span style={{ fontSize: '0.8rem', color: '#0ea5e9', fontWeight: 700 }}>
+                  {adminEditingLab.test_name} ({adminEditingLab.category})
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdminEditingLab(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdminSaveLab} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                    Status Workflow
+                  </label>
+                  <select
+                    value={adminLabForm.status}
+                    onChange={(e) => setAdminLabForm({ ...adminLabForm, status: e.target.value })}
+                    style={{
+                      width: '100%', padding: '10px 12px', borderRadius: '10px',
+                      border: '1px solid var(--border-subtle)', background: 'var(--surface-input)',
+                      color: 'var(--text-main)', fontSize: '0.88rem',
+                    }}
+                  >
+                    <option value="ORDERED">Test Ordered</option>
+                    <option value="SAMPLE_COLLECTED">Sample Collected</option>
+                    <option value="COMPLETED">Completed / Results Ready</option>
+                    <option value="REVIEWED">Doctor Reviewed</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                    Abnormal Flag
+                  </label>
+                  <select
+                    value={adminLabForm.abnormal_flag}
+                    onChange={(e) => setAdminLabForm({ ...adminLabForm, abnormal_flag: e.target.value })}
+                    style={{
+                      width: '100%', padding: '10px 12px', borderRadius: '10px',
+                      border: '1px solid var(--border-subtle)', background: 'var(--surface-input)',
+                      color: 'var(--text-main)', fontSize: '0.88rem',
+                    }}
+                  >
+                    <option value="NORMAL">Normal Limits</option>
+                    <option value="HIGH">High / Elevated</option>
+                    <option value="LOW">Low / Subnormal</option>
+                    <option value="CRITICAL">Critical Alert</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                  Laboratory Findings & Metrics
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Fasting Glucose: 104 mg/dL, HbA1c: 5.8%"
+                  value={adminLabForm.results_summary}
+                  onChange={(e) => setAdminLabForm({ ...adminLabForm, results_summary: e.target.value })}
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: '10px',
+                    border: '1px solid var(--border-subtle)', background: 'var(--surface-input)',
+                    color: 'var(--text-main)', fontSize: '0.88rem', resize: 'vertical',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                  Doctor Clinical Interpretation & Instructions
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Mildly elevated fasting blood sugar. Recommended diet moderation and 3-month follow-up."
+                  value={adminLabForm.doctor_notes}
+                  onChange={(e) => setAdminLabForm({ ...adminLabForm, doctor_notes: e.target.value })}
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: '10px',
+                    border: '1px solid var(--border-subtle)', background: 'var(--surface-input)',
+                    color: 'var(--text-main)', fontSize: '0.88rem', resize: 'vertical',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                  Attached File / PDF Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Blood_Profile_Report.pdf"
+                  value={adminLabForm.file_name}
+                  onChange={(e) => setAdminLabForm({ ...adminLabForm, file_name: e.target.value })}
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: '10px',
+                    border: '1px solid var(--border-subtle)', background: 'var(--surface-input)',
+                    color: 'var(--text-main)', fontSize: '0.88rem',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setAdminEditingLab(null)}
+                  disabled={isSavingAdminLab}
+                  style={{
+                    padding: '9px 16px', borderRadius: '10px', background: 'var(--surface-hover)',
+                    border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingAdminLab}
+                  style={{
+                    padding: '9px 20px', borderRadius: '10px', background: 'linear-gradient(135deg, #10b981, #059669)',
+                    border: 'none', color: '#fff', fontSize: '0.84rem', fontWeight: 800, cursor: 'pointer',
+                  }}
+                >
+                  {isSavingAdminLab ? 'Saving...' : 'Save & Notify Patient'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 8: ADMIN REQUISITION DIAGNOSTIC TEST */}
+      {showAdminOrderModal && selectedPatient && (
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)',
+          backdropFilter: 'blur(5px)', zIndex: 10003,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
+        }}>
+          <div style={{
+            background: 'var(--bg-glass-card)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-xl)',
+            width: '100%',
+            maxWidth: '520px',
+            overflow: 'hidden',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
+          }}>
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid var(--border-subtle)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'var(--surface-hover)',
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                  Requisition Diagnostic Test
+                </h3>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Patient: {selectedPatient.full_name}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdminOrderModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdminOrderLab} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                  Test Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Complete Blood Count (CBC), Lipid Profile, Chest X-Ray"
+                  value={adminOrderForm.test_name}
+                  onChange={(e) => setAdminOrderForm({ ...adminOrderForm, test_name: e.target.value })}
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: '10px',
+                    border: '1px solid var(--border-subtle)', background: 'var(--surface-input)',
+                    color: 'var(--text-main)', fontSize: '0.88rem',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                    Category
+                  </label>
+                  <select
+                    value={adminOrderForm.category}
+                    onChange={(e) => setAdminOrderForm({ ...adminOrderForm, category: e.target.value })}
+                    style={{
+                      width: '100%', padding: '10px 12px', borderRadius: '10px',
+                      border: '1px solid var(--border-subtle)', background: 'var(--surface-input)',
+                      color: 'var(--text-main)', fontSize: '0.88rem',
+                    }}
+                  >
+                    <option value="BLOOD">Blood Test</option>
+                    <option value="IMAGING">Imaging / Radiology</option>
+                    <option value="URINE">Urinalysis</option>
+                    <option value="PATHOLOGY">Pathology & Biopsy</option>
+                    <option value="CARDIAC">Cardiology Diagnostics</option>
+                    <option value="OTHER">Other Diagnostic</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                    Initial Priority / Flag
+                  </label>
+                  <select
+                    value={adminOrderForm.abnormal_flag}
+                    onChange={(e) => setAdminOrderForm({ ...adminOrderForm, abnormal_flag: e.target.value })}
+                    style={{
+                      width: '100%', padding: '10px 12px', borderRadius: '10px',
+                      border: '1px solid var(--border-subtle)', background: 'var(--surface-input)',
+                      color: 'var(--text-main)', fontSize: '0.88rem',
+                    }}
+                  >
+                    <option value="NORMAL">Normal / Routine</option>
+                    <option value="HIGH">High Priority</option>
+                    <option value="CRITICAL">Critical Alert</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>
+                  Pre-Test Preparation Instructions
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. 12-hour fasting required prior to blood draw."
+                  value={adminOrderForm.instructions}
+                  onChange={(e) => setAdminOrderForm({ ...adminOrderForm, instructions: e.target.value })}
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: '10px',
+                    border: '1px solid var(--border-subtle)', background: 'var(--surface-input)',
+                    color: 'var(--text-main)', fontSize: '0.88rem', resize: 'vertical',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAdminOrderModal(false)}
+                  disabled={isOrderingAdminLab}
+                  style={{
+                    padding: '9px 16px', borderRadius: '10px', background: 'var(--surface-hover)',
+                    border: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isOrderingAdminLab}
+                  style={{
+                    padding: '9px 20px', borderRadius: '10px', background: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
+                    border: 'none', color: '#fff', fontSize: '0.84rem', fontWeight: 800, cursor: 'pointer',
+                  }}
+                >
+                  {isOrderingAdminLab ? 'Ordering...' : 'Order & Notify Patient'}
                 </button>
               </div>
             </form>
