@@ -37,7 +37,7 @@ class DoctorProfileSerializer(serializers.ModelSerializer):
         model = DoctorProfile
         fields = [
             'id', 'user', 'department', 'consultation_fee', 'bio',
-            'license_number', 'years_experience', 'updated_at',
+            'license_number', 'years_experience', 'emergency_until', 'emergency_reason', 'updated_at',
             'average_rating', 'review_count', 'recent_reviews'
         ]
         read_only_fields = ['id', 'user', 'updated_at']
@@ -221,6 +221,7 @@ class ConsultationNoteSerializer(serializers.ModelSerializer):
 class AppointmentSerializer(serializers.ModelSerializer):
     patient_details = UserSerializer(source='patient', read_only=True)
     doctor_details = UserSerializer(source='doctor', read_only=True)
+    reassigned_from_doctor_details = UserSerializer(source='reassigned_from_doctor', read_only=True)
     consultation = ConsultationNoteSerializer(read_only=True)
     doctor_profile = serializers.SerializerMethodField()
     review = serializers.SerializerMethodField()
@@ -232,6 +233,8 @@ class AppointmentSerializer(serializers.ModelSerializer):
             'patient_details', 'doctor_details', 'doctor_profile',
             'appointment_datetime', 'duration_minutes', 'status',
             'reason_for_visit', 'cancellation_reason', 'cancelled_by_role',
+            'is_emergency_affected', 'reassigned_from_doctor',
+            'reassigned_from_doctor_details', 'emergency_notes',
             'consultation', 'review', 'created_at',
         ]
         read_only_fields = ['patient', 'status', 'created_at', 'consultation', 'review', 'cancellation_reason', 'cancelled_by_role']

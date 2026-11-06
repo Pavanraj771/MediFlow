@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import authenticate
@@ -252,15 +253,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         username_input = attrs.get("username", "").strip()
         email_input = attrs.get("email", "").strip().lower()
 
-        # Resolve user by username if provided, otherwise by email
+        # Resolve user by username or email if provided
         resolved_email = email_input
         if username_input:
-            try:
-                user_obj = User.objects.get(username=username_input)
+            user_obj = User.objects.filter(Q(username__iexact=username_input) | Q(email__iexact=username_input)).first()
+            if user_obj:
                 resolved_email = user_obj.email
-            except User.DoesNotExist:
+            else:
                 raise serializers.ValidationError(
-                    {"username": "No account found with this username."}
+                    {"username": "No account found with this username or email."}
                 )
 
         if not resolved_email:

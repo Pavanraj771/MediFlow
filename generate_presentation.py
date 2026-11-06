@@ -620,58 +620,6 @@ def create_deck(filename="MediFlow_8_Modules_Presentation.pptx"):
             p2.space_after = Pt(8)
 
     # =========================================================================
-    # SLIDE 10: Module 8 — Security, Data Privacy & Audit Logs
-    # =========================================================================
-    slide10 = prs.slides.add_slide(blank_layout)
-    set_slide_background(slide10)
-    add_header(slide10, "Module 8", "Module 8: Security Governance, Data Privacy & Audit Logging", 10)
-
-    m8_cards = [
-        ("PATIENT DATA PROTECTION", LIGHT_ROSE_BG, ACCENT_ROSE, ROSE_BORDER, [
-            ("PHI Isolation", "Patient health records and vitals are kept isolated and secure."),
-            ("Data Encryption", "Strong encryption used for stored data and network transmission."),
-            ("No Password Leaks", "Password hashes and secret keys are never sent in API responses."),
-            ("Role-Scoped Visibility", "Patients only see their own data; doctors see assigned patients.")
-        ]),
-        ("IMMUTABLE AUDIT LOGS", LIGHT_AMBER_BG, ACCENT_AMBER, AMBER_BORDER, [
-            ("Complete Event Logs", "Logs every record view, appointment edit, and prescription."),
-            ("Detailed Log Info", "Records Who (User ID), What (Action), When (Time), and IP Address."),
-            ("No Deletion Allowed", "Audit log entries cannot be modified or deleted by anyone."),
-            ("Traceability", "Admin can track exact history of any data access event.")
-        ]),
-        ("HIPAA REGULATORY READINESS", LIGHT_TEAL_BG, PRIMARY_TEAL, TEAL_BORDER, [
-            ("Technical Safeguards", "Meets standard healthcare privacy and access rules."),
-            ("Auto Session Timeout", "Logs out idle users automatically to protect screen data."),
-            ("Compliance Reports", "Generates security audit summary for administrative review."),
-            ("System Reliability", "Ensures high system security and zero data loss.")
-        ])
-    ]
-
-    for idx, (c_title, bg_c, tag_c, b_col, bullet_list) in enumerate(m8_cards):
-        left_pos = Inches(0.8) + (col3_w + col3_gap) * idx
-        add_card(slide10, left_pos, top_pos, col3_w, card_h, bg_color=CARD_BG, border_color=b_col)
-        add_pill(slide10, left_pos + Inches(0.2), top_pos + Inches(0.25), Inches(3.3), Inches(0.42), c_title, bg_c, tag_c, b_col)
-
-        tb = slide10.shapes.add_textbox(left_pos + Inches(0.2), top_pos + Inches(0.85), Inches(3.3), Inches(4.1))
-        tf = tb.text_frame
-        tf.word_wrap = True
-        tf.margin_left = tf.margin_top = tf.margin_right = tf.margin_bottom = 0
-        for i, (b_title, b_desc) in enumerate(bullet_list):
-            p = tf.add_paragraph() if i > 0 else tf.paragraphs[0]
-            p.text = f"•  {b_title}:"
-            p.font.name = "Arial"
-            p.font.size = Pt(10.5)
-            p.font.bold = True
-            p.font.color.rgb = PRIMARY_DARK
-            p.space_after = Pt(2)
-            p2 = tf.add_paragraph()
-            p2.text = f"    {b_desc}"
-            p2.font.name = "Arial"
-            p2.font.size = Pt(9.5)
-            p2.font.color.rgb = TEXT_SUBTLE
-            p2.space_after = Pt(8)
-
-    # =========================================================================
     # SLIDE 11: Architecture & Technology Stack
     # =========================================================================
     slide11 = prs.slides.add_slide(blank_layout)

@@ -14,7 +14,9 @@ import {
   Search,
   Filter,
   MessageSquare,
-  FlaskConical
+  FlaskConical,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 import { appointmentsService } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
@@ -53,7 +55,7 @@ export const PatientNotificationBell = () => {
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 45000);
+    const interval = setInterval(fetchNotifications, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -127,13 +129,22 @@ export const PatientNotificationBell = () => {
     setIsOpen(false);
     setShowAllModal(false);
     const isDoctor = user?.role === 'DOCTOR';
+    const isAdmin = user?.role === 'ADMIN';
     if (
       item.notification_type === 'APPOINTMENT_SCHEDULED' ||
       item.notification_type === 'APPOINTMENT_CANCELLED' ||
       item.notification_type === 'APPOINTMENT_COMPLETED' ||
-      item.notification_type === 'APPOINTMENT_REMINDER'
+      item.notification_type === 'APPOINTMENT_REMINDER' ||
+      item.notification_type === 'APPOINTMENT_MISSED' ||
+      item.notification_type === 'APPOINTMENT_REASSIGNED'
     ) {
       navigate(isDoctor ? '/doctor/appointments' : '/patient/appointments');
+    } else if (item.notification_type === 'DOCTOR_EMERGENCY') {
+      if (isAdmin) {
+        navigate('/admin?tab=appointments');
+      } else {
+        navigate('/doctor');
+      }
     } else if (item.notification_type === 'CARE_MESSAGE') {
       if (isDoctor) {
         navigate('/doctor/messages');
@@ -183,6 +194,24 @@ export const PatientNotificationBell = () => {
           bg: isDark ? 'rgba(251, 191, 36, 0.2)' : 'rgba(217, 119, 6, 0.15)',
           color: isDark ? '#fbbf24' : '#d97706',
         };
+      case 'APPOINTMENT_MISSED':
+        return {
+          icon: <CalendarX size={16} />,
+          bg: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+          color: isDark ? '#f87171' : '#dc2626',
+        };
+      case 'APPOINTMENT_REASSIGNED':
+        return {
+          icon: <RotateCcw size={16} />,
+          bg: isDark ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.15)',
+          color: '#10b981',
+        };
+      case 'DOCTOR_EMERGENCY':
+        return {
+          icon: <AlertTriangle size={16} />,
+          bg: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+          color: '#ef4444',
+        };
       case 'ADMIN_BROADCAST':
         return {
           icon: <Megaphone size={16} />,
@@ -226,7 +255,7 @@ export const PatientNotificationBell = () => {
     if (modalFilter === 'UNREAD' && item.is_read) return false;
     if (
       modalFilter === 'APPOINTMENTS' &&
-      !['APPOINTMENT_SCHEDULED', 'APPOINTMENT_CANCELLED', 'APPOINTMENT_COMPLETED', 'APPOINTMENT_REMINDER'].includes(
+      !['APPOINTMENT_SCHEDULED', 'APPOINTMENT_CANCELLED', 'APPOINTMENT_COMPLETED', 'APPOINTMENT_REMINDER', 'APPOINTMENT_MISSED'].includes(
         item.notification_type
       )
     )

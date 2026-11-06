@@ -162,12 +162,122 @@ class AvailableSlotsView(APIView):
         return Response(slots)
 
 
+def check_and_update_no_show_appointments():
+    """
+    Checks if current time is past any scheduled appointment time where consultation
+    has not been completed. Marks them as NO_SHOW and notifies the patient and doctor.
+    """
+    now = timezone.now()
+    overdue_appts = Appointment.objects.filter(
+        status=AppointmentStatus.SCHEDULED,
+        appointment_datetime__lt=now
+    ).select_related('patient', 'doctor')
+
+    for apt in overdue_appts:
+        if hasattr(apt, 'consultation') and apt.consultation:
+            continue
+
+        apt.status = AppointmentStatus.NO_SHOW
+        apt.save(update_fields=['status', 'updated_at'])
+
+        dt_str = timezone.localtime(apt.appointment_datetime).strftime('%b %d, %Y at %I:%M %p')
+
+        # 1. Notify the patient
+        try:
+            if not Notification.objects.filter(
+                recipient=apt.patient,
+                notification_type=NotificationType.APPOINTMENT_MISSED,
+                related_id=str(apt.id)
+            ).exists():
+                Notification.objects.create(
+                    recipient=apt.patient,
+                    title="Appointment Missed (No-Show)",
+                    message=f"You missed your scheduled appointment with Dr. {apt.doctor.full_name} on {dt_str}. Since the scheduled time has passed without completion, it has been marked as a No-Show. Please re-schedule if you still require consultation.",
+                    notification_type=NotificationType.APPOINTMENT_MISSED,
+                    related_id=str(apt.id)
+                )
+        except Exception:
+            pass
+
+        # 2. Notify the doctor
+        try:
+            if not Notification.objects.filter(
+                recipient=apt.doctor,
+                notification_type=NotificationType.APPOINTMENT_MISSED,
+                related_id=str(apt.id)
+            ).exists():
+                Notification.objects.create(
+                    recipient=apt.doctor,
+                    title="Patient No-Show",
+                    message=f"Patient {apt.patient.full_name} missed their scheduled appointment on {dt_str}. It has been marked as a No-Show.",
+                    notification_type=NotificationType.APPOINTMENT_MISSED,
+                    related_id=str(apt.id)
+                )
+        except Exception:
+            pass
+
+
+def check_and_create_30min_reminders():
+    """
+    Checks for any scheduled appointments that start within the next 30 minutes
+    (i.e. now <= appointment_datetime <= now + 30 minutes).
+    Sends the 30-minute reminder notification to the patient and doctor.
+    """
+    now = timezone.now()
+    in_30_mins = now + timedelta(minutes=30)
+    upcoming_appts = Appointment.objects.filter(
+        status=AppointmentStatus.SCHEDULED,
+        appointment_datetime__gt=now,
+        appointment_datetime__lte=in_30_mins,
+    ).select_related('doctor', 'patient')
+
+    for apt in upcoming_appts:
+        dt_str = timezone.localtime(apt.appointment_datetime).strftime('%I:%M %p')
+        date_str = timezone.localtime(apt.appointment_datetime).strftime('%b %d, %Y')
+
+        # 1. Notify patient 30 minutes before appointment
+        try:
+            if not Notification.objects.filter(
+                recipient=apt.patient,
+                notification_type=NotificationType.APPOINTMENT_REMINDER,
+                related_id=str(apt.id)
+            ).exists():
+                Notification.objects.create(
+                    recipient=apt.patient,
+                    title="Upcoming Appointment Reminder (in 30 mins)",
+                    message=f"Reminder: You have an appointment with Dr. {apt.doctor.full_name} scheduled for {dt_str} on {date_str} (starting in 30 minutes). Please be prepared!",
+                    notification_type=NotificationType.APPOINTMENT_REMINDER,
+                    related_id=str(apt.id),
+                )
+        except Exception:
+            pass
+
+        # 2. Notify doctor 30 minutes before appointment
+        try:
+            if not Notification.objects.filter(
+                recipient=apt.doctor,
+                notification_type=NotificationType.APPOINTMENT_REMINDER,
+                related_id=str(apt.id)
+            ).exists():
+                Notification.objects.create(
+                    recipient=apt.doctor,
+                    title="Upcoming Patient Consultation (in 30 mins)",
+                    message=f"Reminder: Consultation with patient {apt.patient.full_name} is scheduled for {dt_str} on {date_str} (starting in 30 minutes).",
+                    notification_type=NotificationType.APPOINTMENT_REMINDER,
+                    related_id=str(apt.id),
+                )
+        except Exception:
+            pass
+
+
 # ── Appointments ──────────────────────────────────────────────────────────────
 class AppointmentViewSet(viewsets.ModelViewSet):
     serializer_class = AppointmentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        check_and_update_no_show_appointments()
+        check_and_create_30min_reminders()
         user = self.request.user
         qs = Appointment.objects.select_related(
             'patient', 'doctor', 'doctor__doctor_profile',
@@ -458,6 +568,319 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 pass
 
         return Response(ConsultationNoteSerializer(consultation).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='doctor-emergency', permission_classes=[IsDoctorUser])
+    def doctor_emergency(self, request):
+        """
+        Doctor declares emergency unavailability for 15m, 20m, 30m, 60m, custom minutes, or ends it.
+        Flags scheduled appointments during this window as is_emergency_affected=True.
+        """
+        doctor = request.user
+        action = request.data.get('action', 'SET')
+        profile, _ = DoctorProfile.objects.get_or_create(user=doctor)
+        now = timezone.now()
+
+        if action == 'END':
+            profile.emergency_until = None
+            profile.emergency_reason = ''
+            profile.save(update_fields=['emergency_until', 'emergency_reason'])
+
+            DoctorLeave.objects.filter(
+                doctor=doctor,
+                start_datetime__lte=now,
+                end_datetime__gt=now,
+                reason__startswith='Doctor Emergency'
+            ).update(end_datetime=now)
+
+            return Response({
+                'is_emergency': False,
+                'message': 'Emergency mode ended successfully.'
+            })
+
+        try:
+            minutes = int(request.data.get('minutes', 15))
+        except (ValueError, TypeError):
+            minutes = 15
+
+        reason = request.data.get('reason', 'Emergency Procedure').strip() or 'Emergency Procedure'
+        emergency_until = now + timedelta(minutes=minutes)
+
+        profile.emergency_until = emergency_until
+        profile.emergency_reason = reason
+        profile.save(update_fields=['emergency_until', 'emergency_reason'])
+
+        DoctorLeave.objects.create(
+            doctor=doctor,
+            start_datetime=now,
+            end_datetime=emergency_until,
+            reason=f"Doctor Emergency: {reason}"
+        )
+
+        affected_appts = Appointment.objects.filter(
+            doctor=doctor,
+            status=AppointmentStatus.SCHEDULED,
+            appointment_datetime__gte=now,
+            appointment_datetime__lt=emergency_until
+        )
+        count = affected_appts.count()
+        until_str = timezone.localtime(emergency_until).strftime('%I:%M %p')
+        for apt in affected_appts:
+            apt.is_emergency_affected = True
+            apt.emergency_notes = f"Doctor declared emergency ({reason}) until {until_str}"
+            apt.save(update_fields=['is_emergency_affected', 'emergency_notes'])
+
+        # Notify Admins
+        admins = User.objects.filter(role=UserRole.ADMIN, is_active=True)
+        for admin in admins:
+            try:
+                Notification.objects.create(
+                    recipient=admin,
+                    title=f"Doctor Emergency: Dr. {doctor.full_name}",
+                    message=f"Dr. {doctor.full_name} ({profile.get_department_display()}) declared an emergency ({reason}) until {until_str}. {count} appointment(s) require reassignment.",
+                    notification_type=NotificationType.DOCTOR_EMERGENCY,
+                    related_id=str(doctor.id)
+                )
+            except Exception:
+                pass
+
+        return Response({
+            'is_emergency': True,
+            'emergency_until': emergency_until.isoformat(),
+            'emergency_reason': reason,
+            'affected_count': count,
+            'message': f"Emergency mode active for {minutes} min until {until_str}. {count} scheduled appointment(s) flagged for reassignment."
+        })
+
+    @action(detail=False, methods=['get'], url_path='emergency-status', permission_classes=[IsDoctorUser])
+    def emergency_status(self, request):
+        doctor = request.user
+        profile = getattr(doctor, 'doctor_profile', None)
+        now = timezone.now()
+        is_emergency = bool(profile and profile.emergency_until and profile.emergency_until > now)
+        remaining_seconds = int((profile.emergency_until - now).total_seconds()) if is_emergency else 0
+
+        affected_count = 0
+        if is_emergency:
+            affected_count = Appointment.objects.filter(
+                doctor=doctor,
+                status=AppointmentStatus.SCHEDULED,
+                is_emergency_affected=True
+            ).count()
+
+        return Response({
+            'is_emergency': is_emergency,
+            'emergency_until': profile.emergency_until.isoformat() if is_emergency else None,
+            'emergency_reason': profile.emergency_reason if is_emergency else '',
+            'remaining_seconds': max(0, remaining_seconds),
+            'affected_count': affected_count,
+        })
+
+    @action(detail=True, methods=['get'], url_path='replacement-candidates', permission_classes=[permissions.IsAuthenticated])
+    def replacement_candidates(self, request, pk=None):
+        """
+        Find available doctors from the SAME department with slots closest to the actual time slot
+        and greater than or equal to the actual time slot (slot_datetime >= actual_datetime).
+        """
+        appointment = self.get_object()
+        orig_doctor = appointment.doctor
+        dept_code = getattr(getattr(orig_doctor, 'doctor_profile', None), 'department', None)
+        target_dt = appointment.appointment_datetime
+        now = timezone.now()
+
+        candidate_doctors = User.objects.filter(
+            role=UserRole.DOCTOR,
+            is_active=True,
+            doctor_profile__department=dept_code
+        ).exclude(id=orig_doctor.id).select_related('doctor_profile')
+
+        candidates = []
+        target_date = target_dt.date()
+
+        for doc in candidate_doctors:
+            doc_profile = doc.doctor_profile
+            # Check candidate doctor emergency
+            doc_emergency_until = doc_profile.emergency_until if doc_profile and doc_profile.emergency_until and doc_profile.emergency_until > now else None
+
+            # Look ahead up to 7 days from target date
+            for day_offset in range(0, 7):
+                check_date = target_date + timedelta(days=day_offset)
+                day_of_week = check_date.weekday()
+
+                schedules = DoctorSchedule.objects.filter(
+                    doctor=doc,
+                    is_active=True
+                ).filter(
+                    Q(date=check_date) | (Q(date__isnull=True) & Q(day_of_week=day_of_week))
+                ).order_by('start_time')
+
+                if not schedules.exists():
+                    continue
+
+                booked_slots = set(
+                    Appointment.objects.filter(
+                        doctor=doc,
+                        appointment_datetime__date=check_date,
+                        status=AppointmentStatus.SCHEDULED
+                    ).values_list('appointment_datetime', flat=True)
+                )
+
+                leaves = DoctorLeave.objects.filter(
+                    doctor=doc,
+                    start_datetime__date__lte=check_date,
+                    end_datetime__date__gte=check_date
+                )
+
+                for schedule in schedules:
+                    slot_duration = timedelta(minutes=schedule.slot_duration_minutes)
+                    start_dt = timezone.make_aware(datetime.combine(check_date, schedule.start_time))
+                    end_dt = timezone.make_aware(datetime.combine(check_date, schedule.end_time))
+
+                    current_dt = start_dt
+                    while current_dt + slot_duration <= end_dt:
+                        # Constraint: slot >= actual appointment time AND slot > now
+                        if current_dt >= target_dt and current_dt > now:
+                            # Not on leave
+                            is_leave = any(leave.start_datetime <= current_dt < leave.end_datetime for leave in leaves)
+                            # Not during emergency
+                            is_in_emergency = bool(doc_emergency_until and current_dt < doc_emergency_until)
+                            # Not already booked
+                            if not is_leave and not is_in_emergency and current_dt not in booked_slots:
+                                diff_minutes = (current_dt - target_dt).total_seconds() / 60
+                                time_label = (
+                                    "Same time" if diff_minutes == 0
+                                    else f"+{int(diff_minutes)} min" if diff_minutes < 60
+                                    else f"+{int(diff_minutes // 60)}h {int(diff_minutes % 60)}m" if diff_minutes < 1440
+                                    else f"+{int(diff_minutes // 1440)} day(s)"
+                                )
+                                candidates.append({
+                                    'doctor_id': str(doc.id),
+                                    'doctor_name': doc.full_name,
+                                    'doctor_email': doc.email,
+                                    'doctor_phone': doc.phone_number,
+                                    'department': dept_code,
+                                    'department_display': doc_profile.get_department_display(),
+                                    'consultation_fee': str(doc_profile.consultation_fee),
+                                    'years_experience': doc_profile.years_experience,
+                                    'slot_datetime': current_dt.isoformat(),
+                                    'slot_formatted': timezone.localtime(current_dt).strftime('%b %d, %Y at %I:%M %p'),
+                                    'diff_minutes': int(diff_minutes),
+                                    'is_same_day': (current_dt.date() == target_date),
+                                    'time_label': time_label,
+                                    'is_recommended': False,
+                                })
+                        current_dt += slot_duration
+
+        # Sort strictly closest to actual timeslot ascending
+        candidates.sort(key=lambda x: x['diff_minutes'])
+
+        if candidates:
+            candidates[0]['is_recommended'] = True
+
+        return Response({
+            'appointment_id': str(appointment.id),
+            'patient_name': appointment.patient.full_name,
+            'original_doctor_id': str(orig_doctor.id),
+            'original_doctor_name': orig_doctor.full_name,
+            'original_appointment_datetime': appointment.appointment_datetime.isoformat(),
+            'original_appointment_formatted': timezone.localtime(appointment.appointment_datetime).strftime('%b %d, %Y at %I:%M %p'),
+            'department': dept_code,
+            'department_display': orig_doctor.doctor_profile.get_department_display() if hasattr(orig_doctor, 'doctor_profile') else dept_code,
+            'total_found': len(candidates),
+            'recommended': candidates[0] if candidates else None,
+            'candidates': candidates[:20],  # Return up to top 20 closest matches
+        })
+
+    @action(detail=True, methods=['post'], url_path='reassign-doctor', permission_classes=[permissions.IsAuthenticated])
+    def reassign_doctor(self, request, pk=None):
+        if request.user.role not in [UserRole.ADMIN, UserRole.DOCTOR]:
+            raise PermissionDenied("Only administrators or doctors can reassign appointments.")
+
+        appointment = self.get_object()
+        new_doctor_id = request.data.get('new_doctor_id')
+        new_slot_str = request.data.get('new_slot_datetime')
+        notes = request.data.get('notes', '').strip()
+
+        if not new_doctor_id:
+            return Response({'detail': 'New doctor ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_doctor = get_object_or_404(User, id=new_doctor_id, role=UserRole.DOCTOR)
+
+        orig_dept = getattr(getattr(appointment.doctor, 'doctor_profile', None), 'department', None)
+        new_dept = getattr(getattr(new_doctor, 'doctor_profile', None), 'department', None)
+        if orig_dept and new_dept and orig_dept != new_dept:
+            return Response({'detail': f'Replacement doctor must belong to the same department ({orig_dept}).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if new_slot_str:
+            try:
+                new_slot_dt = datetime.fromisoformat(new_slot_str.replace('Z', '+00:00'))
+                if timezone.is_naive(new_slot_dt):
+                    new_slot_dt = timezone.make_aware(new_slot_dt)
+            except Exception:
+                return Response({'detail': 'Invalid new_slot_datetime format.'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            new_slot_dt = appointment.appointment_datetime
+
+        # Conflict checks
+        is_booked = Appointment.objects.filter(
+            doctor=new_doctor,
+            appointment_datetime=new_slot_dt,
+            status=AppointmentStatus.SCHEDULED
+        ).exclude(id=appointment.id).exists()
+        if is_booked:
+            return Response({'detail': 'The selected replacement doctor already has an appointment booked at this timeslot.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        on_leave = DoctorLeave.objects.filter(
+            doctor=new_doctor,
+            start_datetime__lte=new_slot_dt,
+            end_datetime__gt=new_slot_dt
+        ).exists()
+        if on_leave:
+            return Response({'detail': 'The selected replacement doctor is on leave/emergency during this timeslot.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        old_doctor = appointment.doctor
+        old_dt_str = timezone.localtime(appointment.appointment_datetime).strftime('%b %d, %Y at %I:%M %p')
+        new_dt_str = timezone.localtime(new_slot_dt).strftime('%b %d, %Y at %I:%M %p')
+        now = timezone.now()
+
+        with transaction.atomic():
+            appointment.reassigned_from_doctor = old_doctor
+            appointment.doctor = new_doctor
+            appointment.appointment_datetime = new_slot_dt
+            appointment.is_emergency_affected = False
+            reassign_note = f"Reassigned from Dr. {old_doctor.full_name} to Dr. {new_doctor.full_name} by {request.user.full_name} ({request.user.role}). {notes}".strip()
+            appointment.emergency_notes = reassign_note
+            appointment.save()
+
+        dept_display = new_doctor.doctor_profile.get_department_display() if hasattr(new_doctor, 'doctor_profile') else ''
+        try:
+            # 1. Notify Patient
+            Notification.objects.create(
+                recipient=appointment.patient,
+                title="Appointment Reassigned: Dr. " + new_doctor.full_name,
+                message=f"Due to an emergency with Dr. {old_doctor.full_name}, your appointment has been reassigned to Dr. {new_doctor.full_name} ({dept_display}) for {new_dt_str}. Your appointment remains confirmed.",
+                notification_type=NotificationType.APPOINTMENT_REASSIGNED,
+                related_id=str(appointment.id)
+            )
+            # 2. Notify Replacement Doctor
+            Notification.objects.create(
+                recipient=new_doctor,
+                title="Emergency Transfer: New Appointment Assigned",
+                message=f"You have been assigned patient {appointment.patient.full_name} for {new_dt_str} (transferred from Dr. {old_doctor.full_name}).",
+                notification_type=NotificationType.APPOINTMENT_REASSIGNED,
+                related_id=str(appointment.id)
+            )
+            # 3. Notify Original Doctor
+            Notification.objects.create(
+                recipient=old_doctor,
+                title="Appointment Transferred",
+                message=f"Your scheduled appointment with {appointment.patient.full_name} ({old_dt_str}) has been reassigned to Dr. {new_doctor.full_name} for {new_dt_str}.",
+                notification_type=NotificationType.APPOINTMENT_REASSIGNED,
+                related_id=str(appointment.id)
+            )
+        except Exception:
+            pass
+
+        return Response(AppointmentSerializer(appointment).data, status=status.HTTP_200_OK)
 
 
 # ── Patient list for a Doctor ─────────────────────────────────────────────────
@@ -943,8 +1366,9 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        check_and_update_no_show_appointments()
+        check_and_create_30min_reminders()
         self.ensure_welcome_notification(user)
-        self.check_30min_reminders(user)
         self.sync_admin_broadcasts(user)
         return Notification.objects.filter(recipient=user).order_by('-created_at')
 
@@ -1001,8 +1425,9 @@ class NotificationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='unread-count')
     def unread_count(self, request):
         user = request.user
+        check_and_update_no_show_appointments()
+        check_and_create_30min_reminders()
         self.ensure_welcome_notification(user)
-        self.check_30min_reminders(user)
         self.sync_admin_broadcasts(user)
         count = Notification.objects.filter(recipient=user, is_read=False).count()
         return Response({'unread_count': count})

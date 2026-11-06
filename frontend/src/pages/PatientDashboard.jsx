@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Activity, ArrowRight, CalendarDays, ClipboardPlus, FileHeart,
   HeartPulse, ShieldCheck, Stethoscope, UserRound, MessageSquare,
-  FlaskConical, ShieldAlert,
+  FlaskConical,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import PatientAvatarMenu from '../components/PatientAvatarMenu';
@@ -54,15 +54,6 @@ const services = [
     tag: 'Treatment & refills',
     link: '/patient/prescriptions',
     linkLabel: 'Daily pill schedule',
-  },
-  {
-    icon: ShieldAlert,
-    title: 'Emergency Medical ID',
-    description: 'Digital medical passport with scannable QR pass, blood group, critical alerts & emergency contacts.',
-    accent: 'orange',
-    tag: 'Life-saving pass',
-    link: '/patient/emergency-id',
-    linkLabel: 'View Emergency ID',
   },
   {
     icon: FileHeart,

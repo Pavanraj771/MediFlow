@@ -18,6 +18,9 @@ from .views import (
     UserProfileView,
     UserStatusToggleView,
     VerifyEmailOTPView,
+    PasswordResetRequestOTPView,
+    PasswordResetVerifyOTPView,
+    PasswordResetConfirmView,
 )
 
 app_name = "accounts"
@@ -26,6 +29,9 @@ urlpatterns = [
     path("register/", RegisterView.as_view(), name="register"),
     path("email/send-otp/", SendEmailOTPView.as_view(), name="send_email_otp"),
     path("email/verify-otp/", VerifyEmailOTPView.as_view(), name="verify_email_otp"),
+    path("password-reset/send-otp/", PasswordResetRequestOTPView.as_view(), name="password_reset_send_otp"),
+    path("password-reset/verify-otp/", PasswordResetVerifyOTPView.as_view(), name="password_reset_verify_otp"),
+    path("password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password_reset_confirm"),
     path("login/", CustomLoginView.as_view(), name="login"),
     path("google/", GoogleLoginView.as_view(), name="google_login"),
     path("me/", UserProfileView.as_view(), name="me"),

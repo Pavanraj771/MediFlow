@@ -108,6 +108,14 @@ export const AdminDashboard = () => {
 
   const [inspectingAppointment, setInspectingAppointment] = useState(null);
 
+  // ── Smart Doctor Reassignment State ─────────────────────────────────────────
+  const [reassignAppointment, setReassignAppointment] = useState(null);
+  const [candidateData, setCandidateData] = useState(null);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState(null);
+  const [reassignNotes, setReassignNotes] = useState('');
+  const [isReassigning, setIsReassigning] = useState(false);
+
   // Action states & modals
   const [requestActionId, setRequestActionId] = useState(null);
   const [accountToDelete, setAccountToDelete] = useState(null);
@@ -442,6 +450,52 @@ export const AdminDashboard = () => {
     }
   };
 
+  const handleOpenReassignModal = async (appt) => {
+    setReassignAppointment(appt);
+    setSelectedCandidate(null);
+    setReassignNotes('');
+    setCandidateData(null);
+    setLoadingCandidates(true);
+    try {
+      const data = await appointmentsService.getReplacementCandidates(appt.id);
+      setCandidateData(data);
+      if (data?.recommended) {
+        setSelectedCandidate(data.recommended);
+      }
+    } catch (err) {
+      console.error('Failed to load candidate doctors:', err);
+      alert(err.response?.data?.detail || 'Failed to load replacement candidates.');
+    } finally {
+      setLoadingCandidates(false);
+    }
+  };
+
+  const handleExecuteReassignment = async () => {
+    if (!reassignAppointment || !selectedCandidate) {
+      alert('Please select a replacement doctor and timeslot.');
+      return;
+    }
+    try {
+      setIsReassigning(true);
+      const updated = await appointmentsService.reassignDoctor(reassignAppointment.id, {
+        new_doctor_id: selectedCandidate.doctor_id,
+        new_slot_datetime: selectedCandidate.slot_datetime,
+        notes: reassignNotes.trim(),
+      });
+      setAppointments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+      if (inspectingAppointment?.id === updated.id) {
+        setInspectingAppointment(updated);
+      }
+      alert(`Appointment reassigned successfully to Dr. ${selectedCandidate.doctor_name} for ${selectedCandidate.slot_formatted}. Automated notifications have been dispatched to patient and doctors.`);
+      setReassignAppointment(null);
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.detail || 'Failed to reassign doctor.');
+    } finally {
+      setIsReassigning(false);
+    }
+  };
+
   const handleCreateBroadcast = async (e) => {
     e.preventDefault();
     if (!broadcastForm.title || !broadcastForm.message || isPublishingBroadcast) return;
@@ -512,9 +566,18 @@ export const AdminDashboard = () => {
     });
   }, [users, searchQuery, patientStatusFilter]);
 
+  const emergencyAffectedCount = useMemo(() => {
+    return appointments.filter((a) => a.is_emergency_affected && a.status === 'SCHEDULED').length;
+  }, [appointments]);
+
   const filteredAppointments = useMemo(() => {
     return appointments.filter((appt) => {
-      const matchesStatus = appointmentFilter === 'ALL' || appt.status === appointmentFilter;
+      const matchesStatus =
+        appointmentFilter === 'ALL'
+          ? true
+          : appointmentFilter === 'EMERGENCY_AFFECTED'
+          ? (appt.is_emergency_affected && appt.status === 'SCHEDULED')
+          : appt.status === appointmentFilter;
       const patientName = appt.patient_details?.full_name || '';
       const doctorName = appt.doctor_details?.full_name || '';
       const q = appointmentSearch.toLowerCase();
@@ -1769,23 +1832,75 @@ export const AdminDashboard = () => {
                 />
               </div>
 
-              {['ALL', 'SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'].map((st) => (
+              {['ALL', 'SCHEDULED', 'EMERGENCY_AFFECTED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'].map((st) => (
                 <button
                   key={st}
                   type="button"
                   onClick={() => setAppointmentFilter(st)}
                   style={{
                     padding: '8px 14px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
-                    background: appointmentFilter === st ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-glass-card)',
-                    color: appointmentFilter === st ? '#818cf8' : 'var(--text-muted)',
-                    border: appointmentFilter === st ? '1px solid #818cf8' : '1px solid var(--border-subtle)',
+                    background: appointmentFilter === st
+                      ? (st === 'EMERGENCY_AFFECTED' ? '#ef4444' : 'rgba(99, 102, 241, 0.15)')
+                      : 'var(--bg-glass-card)',
+                    color: appointmentFilter === st
+                      ? '#fff'
+                      : (st === 'EMERGENCY_AFFECTED' ? '#ef4444' : 'var(--text-muted)'),
+                    border: appointmentFilter === st
+                      ? (st === 'EMERGENCY_AFFECTED' ? '1px solid #ef4444' : '1px solid #818cf8')
+                      : (st === 'EMERGENCY_AFFECTED' ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid var(--border-subtle)'),
                   }}
                 >
-                  {st.replace('_', ' ')}
+                  {st === 'EMERGENCY_AFFECTED' ? `🚨 Affected (${emergencyAffectedCount})` : st.replace('_', ' ')}
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Emergency Affected Alert Banner */}
+          {emergencyAffectedCount > 0 && (
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(185, 28, 28, 0.08) 100%)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: '14px',
+              padding: '16px 20px',
+              marginBottom: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '14px',
+              flexWrap: 'wrap',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{
+                  width: '40px', height: '40px', borderRadius: '10px',
+                  background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444',
+                  display: 'grid', placeItems: 'center',
+                }}>
+                  <AlertTriangle size={20} />
+                </div>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 800, color: '#ef4444' }}>
+                    {emergencyAffectedCount} Appointment{emergencyAffectedCount > 1 ? 's' : ''} Affected by Doctor Emergency
+                  </h4>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    Doctor declared sudden unavailability. Click "Reassign Doctor" to match patients with available colleagues in the same department.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAppointmentFilter('EMERGENCY_AFFECTED')}
+                style={{
+                  padding: '8px 16px', borderRadius: '10px',
+                  background: '#ef4444', color: '#fff', border: 'none',
+                  fontSize: '0.82rem', fontWeight: 800, cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                }}
+              >
+                View Affected Only ({emergencyAffectedCount})
+              </button>
+            </div>
+          )}
 
           {/* Appointments Table */}
           <div style={{
@@ -1821,6 +1936,7 @@ export const AdminDashboard = () => {
                 <tbody>
                   {filteredAppointments.map((apt) => {
                     const sb = getStatusBadge(apt.status);
+                    const isEmergency = apt.is_emergency_affected && apt.status === 'SCHEDULED';
                     return (
                       <tr
                         key={apt.id}
@@ -1829,9 +1945,10 @@ export const AdminDashboard = () => {
                           borderBottom: '1px solid var(--border-subtle)',
                           cursor: 'pointer',
                           transition: 'background 0.15s ease',
+                          background: isEmergency ? 'rgba(239, 68, 68, 0.07)' : 'transparent',
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-hover)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = isEmergency ? 'rgba(239, 68, 68, 0.14)' : 'var(--surface-hover)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = isEmergency ? 'rgba(239, 68, 68, 0.07)' : 'transparent'; }}
                       >
                         <td style={{ padding: '16px 20px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1859,6 +1976,21 @@ export const AdminDashboard = () => {
                           <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: '#10b981', fontWeight: 600 }}>
                             {apt.doctor_profile?.department ? apt.doctor_profile.department.replace('_', ' ') : 'General Medicine'}
                           </p>
+                          {apt.reassigned_from_doctor_details && (
+                            <div style={{ fontSize: '0.72rem', color: '#8b5cf6', fontWeight: 700, marginTop: '2px' }}>
+                              🔄 Transferred from Dr. {apt.reassigned_from_doctor_details.full_name}
+                            </div>
+                          )}
+                          {isEmergency && (
+                            <div style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              padding: '2px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 800,
+                              background: 'rgba(239, 68, 68, 0.18)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.4)',
+                              marginTop: '4px'
+                            }}>
+                              <AlertTriangle size={11} /> Emergency Affected
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '16px' }}>
                           <span style={{
@@ -1880,9 +2012,30 @@ export const AdminDashboard = () => {
                               Reason: {apt.cancellation_reason}
                             </div>
                           )}
+                          {apt.emergency_notes && (
+                            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {apt.emergency_notes}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '16px 20px', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                            {apt.status === 'SCHEDULED' && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenReassignModal(apt)}
+                                style={{
+                                  padding: '6px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer',
+                                  background: isEmergency ? '#ef4444' : 'rgba(245, 158, 11, 0.15)',
+                                  color: isEmergency ? '#fff' : '#f59e0b',
+                                  border: isEmergency ? 'none' : '1px solid rgba(245, 158, 11, 0.3)',
+                                  display: 'inline-flex', alignItems: 'center', gap: '5px',
+                                  boxShadow: isEmergency ? '0 2px 8px rgba(239, 68, 68, 0.35)' : 'none',
+                                }}
+                              >
+                                <Sparkles size={12} /> Reassign
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setInspectingAppointment(apt)}
@@ -1891,7 +2044,7 @@ export const AdminDashboard = () => {
                                 background: 'rgba(99, 102, 241, 0.12)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.3)',
                               }}
                             >
-                              View Details
+                              Details
                             </button>
                             {apt.status === 'SCHEDULED' && (
                               <button
@@ -3934,6 +4087,308 @@ export const AdminDashboard = () => {
                   </p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* MODAL: SMART DOCTOR REASSIGNMENT MODAL                             */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {reassignAppointment && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)',
+            backdropFilter: 'blur(6px)', zIndex: 10003,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget && !isReassigning) setReassignAppointment(null); }}
+        >
+          <div style={{
+            background: 'var(--bg-glass-card)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-xl)',
+            width: '100%',
+            maxWidth: '680px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid var(--border-subtle)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'var(--surface-hover)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '40px', height: '40px', borderRadius: '10px',
+                  background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b',
+                  display: 'grid', placeItems: 'center',
+                }}>
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                    Smart Doctor Reassignment
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Match patient with an available doctor from the same department
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReassignAppointment(null)}
+                disabled={isReassigning}
+                style={{
+                  background: 'transparent', border: 'none', color: 'var(--text-muted)',
+                  cursor: 'pointer', padding: '6px', borderRadius: '8px',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* Original Appointment Card */}
+              <div style={{
+                padding: '16px 18px', borderRadius: '12px',
+                background: reassignAppointment.is_emergency_affected ? 'rgba(239, 68, 68, 0.08)' : 'var(--surface-input)',
+                border: reassignAppointment.is_emergency_affected ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-subtle)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '8px' }}>
+                  <div>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      CURRENT APPOINTMENT DETAILS
+                    </span>
+                    <h4 style={{ margin: '4px 0 0', fontSize: '1.05rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                      Patient: {reassignAppointment.patient_details?.full_name || 'Patient'}
+                    </h4>
+                  </div>
+                  {reassignAppointment.is_emergency_affected && (
+                    <span style={{
+                      padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800,
+                      background: '#ef4444', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: '4px'
+                    }}>
+                      <AlertTriangle size={12} /> Emergency Affected
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', fontSize: '0.82rem', marginTop: '10px' }}>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Assigned Doctor:</span>{' '}
+                    <strong style={{ color: 'var(--text-main)' }}>Dr. {reassignAppointment.doctor_details?.full_name}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Department:</span>{' '}
+                    <strong style={{ color: '#10b981' }}>{reassignAppointment.doctor_profile?.department ? reassignAppointment.doctor_profile.department.replace('_', ' ') : 'General Medicine'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Original Timeslot:</span>{' '}
+                    <strong style={{ color: 'var(--text-main)' }}>{formatDateTime(reassignAppointment.appointment_datetime)}</strong>
+                  </div>
+                  {reassignAppointment.emergency_notes && (
+                    <div style={{ gridColumn: '1 / -1', color: '#ef4444', fontStyle: 'italic' }}>
+                      Reason: {reassignAppointment.emergency_notes}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Matching Rule Info */}
+              <div style={{
+                padding: '12px 14px', borderRadius: '10px',
+                background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.25)',
+                fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5
+              }}>
+                ℹ️ <strong>MediFlow Smart Reassignment Rules:</strong> Doctors are strictly filtered from the <strong>same department ({reassignAppointment.doctor_profile?.department ? reassignAppointment.doctor_profile.department.replace('_', ' ') : 'General Medicine'})</strong>. Slots must be <strong>closest to and &ge; actual scheduled time</strong>, with the replacement doctor confirmed completely free.
+              </div>
+
+              {/* Candidates Section */}
+              {loadingCandidates ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
+                  <RefreshCw size={28} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 10px' }} />
+                  <p style={{ margin: 0, fontWeight: 700 }}>Searching available doctors and upcoming slots in department...</p>
+                </div>
+              ) : !candidateData || candidateData.candidates.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '36px 20px', borderRadius: '12px', background: 'var(--surface-input)', border: '1px solid var(--border-subtle)' }}>
+                  <AlertCircle size={32} color="#f59e0b" style={{ margin: '0 auto 8px' }} />
+                  <h4 style={{ margin: '0 0 6px', fontSize: '0.98rem', color: 'var(--heading-color)' }}>No Replacement Slots Found</h4>
+                  <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                    There are currently no other doctors with open slots in this department starting on or after this appointment time for the next 7 days.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Available Department Candidates ({candidateData.candidates.length} slots found)
+                    </span>
+                    {candidateData.recommended && (
+                      <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 700 }}>
+                        ✨ #1 Recommended closest match selected
+                      </span>
+                    )}
+                  </div>
+
+                  {candidateData.candidates.map((cand, idx) => {
+                    const isSelected = selectedCandidate && selectedCandidate.doctor_id === cand.doctor_id && selectedCandidate.slot_datetime === cand.slot_datetime;
+                    return (
+                      <div
+                        key={`${cand.doctor_id}-${cand.slot_datetime}`}
+                        onClick={() => setSelectedCandidate(cand)}
+                        style={{
+                          padding: '14px 18px',
+                          borderRadius: '12px',
+                          background: isSelected
+                            ? (cand.is_recommended ? 'rgba(16, 185, 129, 0.12)' : 'rgba(99, 102, 241, 0.12)')
+                            : 'var(--surface-input)',
+                          border: isSelected
+                            ? (cand.is_recommended ? '2px solid #10b981' : '2px solid #818cf8')
+                            : '1px solid var(--border-subtle)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '12px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <input
+                            type="radio"
+                            checked={isSelected}
+                            onChange={() => setSelectedCandidate(cand)}
+                            style={{ cursor: 'pointer', accentColor: cand.is_recommended ? '#10b981' : '#818cf8' }}
+                          />
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <strong style={{ fontSize: '0.92rem', color: 'var(--heading-color)' }}>
+                                Dr. {cand.doctor_name}
+                              </strong>
+                              {cand.is_recommended && (
+                                <span style={{
+                                  background: '#10b981', color: '#fff', fontSize: '0.68rem', fontWeight: 800,
+                                  padding: '1px 7px', borderRadius: '4px', letterSpacing: '0.04em'
+                                }}>
+                                  #1 CLOSEST MATCH
+                                </span>
+                              )}
+                              <span style={{ fontSize: '0.75rem', color: '#818cf8', fontWeight: 700 }}>
+                                {cand.time_label}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              Timeslot: <strong style={{ color: 'var(--text-main)' }}>{cand.slot_formatted}</strong>
+                              {cand.years_experience ? ` · ${cand.years_experience} yrs exp` : ''}
+                              {cand.consultation_fee ? ` · Fee: ₹${cand.consultation_fee}` : ''}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setSelectedCandidate(cand); }}
+                          style={{
+                            padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800,
+                            background: isSelected ? (cand.is_recommended ? '#10b981' : '#818cf8') : 'transparent',
+                            color: isSelected ? '#fff' : 'var(--text-muted)',
+                            border: isSelected ? 'none' : '1px solid var(--border-subtle)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {isSelected ? 'Selected' : 'Select'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Optional Notes */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  ADMIN REASSIGNMENT NOTES (INCLUDED IN NOTIFICATIONS)
+                </label>
+                <input
+                  type="text"
+                  value={reassignNotes}
+                  onChange={(e) => setReassignNotes(e.target.value)}
+                  placeholder="e.g. Transferred due to doctor emergency procedure. Immediate priority."
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: '10px',
+                    background: 'var(--surface-input)', border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-main)', fontSize: '0.85rem', outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid var(--border-subtle)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'var(--surface-hover)',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                {selectedCandidate ? (
+                  <span>Selected: <strong>Dr. {selectedCandidate.doctor_name}</strong> for {selectedCandidate.slot_formatted}</span>
+                ) : (
+                  <span>Select a doctor and timeslot above</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setReassignAppointment(null)}
+                  disabled={isReassigning}
+                  style={{
+                    padding: '8px 16px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 700,
+                    background: 'transparent', border: '1px solid var(--border-subtle)', color: 'var(--text-main)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteReassignment}
+                  disabled={isReassigning || !selectedCandidate}
+                  style={{
+                    padding: '8px 20px', borderRadius: '10px', fontSize: '0.82rem', fontWeight: 800,
+                    background: '#10b981', color: '#fff', border: 'none',
+                    cursor: isReassigning || !selectedCandidate ? 'not-allowed' : 'pointer',
+                    opacity: isReassigning || !selectedCandidate ? 0.6 : 1,
+                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)',
+                    display: 'flex', alignItems: 'center', gap: '6px'
+                  }}
+                >
+                  {isReassigning ? (
+                    <>
+                      <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                      Reassigning...
+                    </>
+                  ) : (
+                    <>
+                      <Check size={14} />
+                      Confirm & Reassign
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

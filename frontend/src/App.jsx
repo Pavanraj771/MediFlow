@@ -32,7 +32,6 @@ import PatientDoctors from './pages/PatientDoctors';
 import PatientMessages from './pages/PatientMessages';
 import PatientLabReports from './pages/PatientLabReports';
 import PatientVitalsTracker from './pages/PatientVitalsTracker';
-import PatientEmergencyID from './pages/PatientEmergencyID';
 
 // Redirect authenticated users to their portal
 const HomeRedirect = () => {
@@ -120,9 +119,6 @@ function App() {
                 } />
                 <Route path="/patient/vitals-tracker" element={
                   <ProtectedRoute allowedRoles={['PATIENT']}><PatientVitalsTracker /></ProtectedRoute>
-                } />
-                <Route path="/patient/emergency-id" element={
-                  <ProtectedRoute allowedRoles={['PATIENT']}><PatientEmergencyID /></ProtectedRoute>
                 } />
                 <Route path="/patient/health-records" element={
                   <ProtectedRoute allowedRoles={['PATIENT']}><PatientHealthRecords /></ProtectedRoute>

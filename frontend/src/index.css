@@ -15,6 +15,7 @@
   --bg-glass: rgba(15, 23, 42, 0.85);
   --bg-glass-card: rgba(20, 30, 51, 0.75);
   --bg-glass-hover: rgba(30, 41, 59, 0.85);
+  --surface-modal: #1e293b;
 
   /* Accents & Roles */
   --color-primary: #0ea5e9;         /* MediFlow Core Blue */
@@ -84,6 +85,7 @@
   --bg-glass: rgba(255, 255, 255, 0.9);
   --bg-glass-card: rgba(255, 255, 255, 0.95);
   --bg-glass-hover: rgba(241, 245, 249, 0.95);
+  --surface-modal: #ffffff;
 
   /* Accents & Roles */
   --color-primary: #0284c7;         /* High-contrast Blue */

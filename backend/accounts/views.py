@@ -178,6 +178,152 @@ class VerifyEmailOTPView(APIView):
         return Response({"message": "Email verified successfully."}, status=status.HTTP_200_OK)
 
 
+class PasswordResetRequestOTPView(APIView):
+    """
+    Initiates password reset by sending a 6-digit OTP code to the user's verified registered email.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip().lower()
+        if not email:
+            return Response({"detail": "Please enter your registered email address."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_email(email)
+        except ValidationError:
+            return Response({"detail": "Please enter a valid email address."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if not user:
+            return Response({"detail": "No active MediFlow account found with this email address."}, status=status.HTTP_404_NOT_FOUND)
+
+        existing = EmailOTP.objects.filter(email=email).first()
+        if existing and timezone.now() - existing.last_sent_at < timedelta(seconds=30):
+            return Response({"detail": "Please wait 30 seconds before requesting another code."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        EmailOTP.objects.update_or_create(
+            email=email,
+            defaults={
+                "code_hash": make_password(code),
+                "expires_at": timezone.now() + timedelta(minutes=10),
+                "verified": False,
+                "attempts": 0,
+                "last_sent_at": timezone.now(),
+            },
+        )
+
+        if not settings.EMAIL_HOST_PASSWORD:
+            logger.info(f"[DEV MODE PASSWORD RESET OTP] Email: {email}, Code: {code}")
+            print(f"\n==========================================")
+            print(f"  MEDIFLOW DEV PASSWORD RESET OTP FOR {email}: {code}")
+            print(f"==========================================\n")
+            return Response({
+                "message": f"Password reset code sent. (DEV MODE: {code})",
+                "dev_code": code,
+                "email": email,
+            }, status=status.HTTP_200_OK)
+
+        try:
+            send_mail(
+                subject="MediFlow Password Reset Code",
+                message=f"Hello {user.full_name},\n\nYour MediFlow password reset code is: {code}\n\nThis code will expire in 10 minutes. If you did not request a password reset, please ignore this email or contact hospital administration.\n\nMediFlow Healthcare",
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as mail_err:
+            logger.warning(f"Mail send failed ({mail_err}), fallback to DEV OTP: {code}")
+            print(f"\n==========================================")
+            print(f"  MEDIFLOW DEV PASSWORD RESET OTP FOR {email}: {code}")
+            print(f"==========================================\n")
+            return Response({
+                "message": f"Password reset code sent. (DEV MODE: {code})",
+                "dev_code": code,
+                "email": email,
+            }, status=status.HTTP_200_OK)
+
+        return Response({"message": "Password reset code sent to your email. Check your inbox.", "email": email}, status=status.HTTP_200_OK)
+
+
+class PasswordResetVerifyOTPView(APIView):
+    """
+    Validates the 6-digit OTP code entered by the user for password reset.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip().lower()
+        code = str(request.data.get("otp", "")).strip()
+
+        if not email or not code:
+            return Response({"detail": "Email and verification code are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        otp_record = EmailOTP.objects.filter(email=email).first()
+        if not otp_record or otp_record.expires_at <= timezone.now():
+            return Response({"detail": "This verification code has expired. Please request a new one."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if otp_record.attempts >= 5:
+            otp_record.delete()
+            return Response({"detail": "Too many failed attempts. Please request a new code."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        otp_record.attempts += 1
+        if not check_password(code, otp_record.code_hash):
+            otp_record.save(update_fields=["attempts"])
+            return Response({"detail": "Incorrect verification code. Please check and try again."}, status=status.HTTP_400_BAD_REQUEST)
+
+        otp_record.verified = True
+        otp_record.save(update_fields=["verified", "attempts"])
+        return Response({"message": "Verification code confirmed successfully.", "verified": True}, status=status.HTTP_200_OK)
+
+
+class PasswordResetConfirmView(APIView):
+    """
+    Sets a new password for the user once their OTP has been verified.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip().lower()
+        code = str(request.data.get("otp", "")).strip()
+        new_password = str(request.data.get("new_password", "")).strip()
+
+        if not email or not new_password:
+            return Response({"detail": "Email and new password are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(new_password) < 8:
+            return Response({"detail": "New password must be at least 8 characters long."}, status=status.HTTP_400_BAD_REQUEST)
+
+        otp_record = EmailOTP.objects.filter(email=email).first()
+        if not otp_record or otp_record.expires_at <= timezone.now():
+            return Response({"detail": "Password reset session expired. Please request a new code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate verified state or correct code
+        if not otp_record.verified:
+            if not code or not check_password(code, otp_record.code_hash):
+                return Response({"detail": "Invalid or unverified verification code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if not user:
+            return Response({"detail": "User account not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+
+        otp_record.delete()
+
+        record_audit_log(
+            actor=user,
+            action="PASSWORD_RESET",
+            details=f"Password reset successfully for user {user.email}",
+            severity="INFO"
+        )
+
+        return Response({
+            "message": "Your password has been reset successfully. You can now log in with your new password."
+        }, status=status.HTTP_200_OK)
+
+
 class CustomLoginView(TokenObtainPairView):
     """
     Login endpoint authenticating via email and password.

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Activity, CircleUserRound, LogOut, UserRound,
-  MessageSquare, FlaskConical, HeartPulse, ShieldAlert, Pill
+  MessageSquare, FlaskConical, HeartPulse, Pill
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -80,10 +80,6 @@ const PatientAvatarMenu = ({ size = 44, align = 'right' }) => {
           <Link role="menuitem" to="/patient/vitals-tracker" onClick={() => setIsOpen(false)}>
             <HeartPulse size={17} />
             <span>Vitals & Health Tracker</span>
-          </Link>
-          <Link role="menuitem" to="/patient/emergency-id" onClick={() => setIsOpen(false)}>
-            <ShieldAlert size={17} />
-            <span>Emergency Medical ID</span>
           </Link>
           <Link role="menuitem" to="/patient/prescriptions" onClick={() => setIsOpen(false)}>
             <Pill size={17} />

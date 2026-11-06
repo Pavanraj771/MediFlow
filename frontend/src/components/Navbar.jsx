@@ -234,7 +234,7 @@ export const Navbar = () => {
                   boxShadow: 'var(--shadow-glow)',
                 }}
               >
-                Register as Patient
+                Register
               </Link>
             </div>
           )}

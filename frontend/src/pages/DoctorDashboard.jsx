@@ -4,7 +4,7 @@ import {
   Stethoscope, Activity, Calendar, CalendarDays, Clock, ShieldCheck,
   Users, ClipboardList, HeartPulse, Plus, CheckCircle2, XCircle,
   CalendarCheck, ChevronRight, UserRound, AlertCircle, MessageSquare, RotateCw,
-  Star,
+  Star, AlertTriangle, Timer,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { appointmentsService } from '../services/api';
@@ -37,12 +37,102 @@ const DoctorDashboard = () => {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [scheduleView, setScheduleView] = useState('REMAINING_WEEK'); // 'REMAINING_WEEK' | 'ALL'
 
+  // Doctor Emergency State
+  const [emergencyStatus, setEmergencyStatus] = useState({
+    is_emergency: false,
+    emergency_until: null,
+    emergency_reason: '',
+    remaining_seconds: 0,
+    affected_count: 0
+  });
+  const [emergencyLoading, setEmergencyLoading] = useState(false);
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [emergencyMinsInput, setEmergencyMinsInput] = useState(15);
+  const [emergencyReasonInput, setEmergencyReasonInput] = useState('Urgent Clinical Emergency');
+
   useEffect(() => {
     fetchAppointments();
     fetchSchedules();
     fetchRefills();
     fetchDoctorReviews();
+    fetchEmergencyStatus();
   }, [user]);
+
+  const fetchEmergencyStatus = async () => {
+    try {
+      const res = await appointmentsService.getDoctorEmergencyStatus();
+      setEmergencyStatus(res);
+    } catch (err) {
+      console.error('Failed to fetch emergency status:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!emergencyStatus.is_emergency || emergencyStatus.remaining_seconds <= 0) return;
+    const timer = setInterval(() => {
+      setEmergencyStatus(prev => {
+        if (prev.remaining_seconds <= 1) {
+          clearInterval(timer);
+          fetchEmergencyStatus();
+          return { ...prev, is_emergency: false, remaining_seconds: 0 };
+        }
+        return { ...prev, remaining_seconds: prev.remaining_seconds - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [emergencyStatus.is_emergency, emergencyStatus.remaining_seconds]);
+
+  const formatCountdown = (seconds) => {
+    if (!seconds || seconds <= 0) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins >= 60) {
+      const hrs = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      return `${hrs}h ${remMins}m ${secs < 10 ? '0' : ''}${secs}s`;
+    }
+    return `${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
+  };
+
+  const handleQuickEmergency = async (mins) => {
+    setEmergencyMinsInput(mins);
+    setShowEmergencyModal(true);
+  };
+
+  const handleConfirmEmergency = async () => {
+    try {
+      setEmergencyLoading(true);
+      const res = await appointmentsService.declareDoctorEmergency({
+        action: 'SET',
+        minutes: Number(emergencyMinsInput) || 15,
+        reason: emergencyReasonInput.trim() || 'Urgent Medical Emergency'
+      });
+      setShowEmergencyModal(false);
+      await fetchEmergencyStatus();
+      await fetchAppointments();
+      alert(res.message || 'Emergency status declared.');
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.detail || 'Failed to declare emergency.');
+    } finally {
+      setEmergencyLoading(false);
+    }
+  };
+
+  const handleEndEmergency = async () => {
+    if (!window.confirm('Are you sure you want to resume duty and end emergency unavailability early?')) return;
+    try {
+      setEmergencyLoading(true);
+      await appointmentsService.declareDoctorEmergency({ action: 'END' });
+      await fetchEmergencyStatus();
+      await fetchAppointments();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to end emergency.');
+    } finally {
+      setEmergencyLoading(false);
+    }
+  };
 
   const fetchDoctorReviews = async () => {
     try {
@@ -288,6 +378,123 @@ const DoctorDashboard = () => {
           <span><span className="patient-live-dot" style={{ background: '#10b981' }} /> Today's appointments: <strong>{todayAppts.length}</strong></span>
           <span>{user?.email}</span>
         </div>
+      </section>
+
+      {/* Doctor Emergency Unavailability Box */}
+      <section className={`doctor-emergency-banner ${emergencyStatus.is_emergency ? 'doctor-emergency-banner--active' : ''}`}>
+        {emergencyStatus.is_emergency ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{
+                width: 52, height: 52, borderRadius: '14px',
+                background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.4)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444',
+                animation: 'pulse 1.5s infinite'
+              }}>
+                <AlertTriangle size={28} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{
+                    background: '#ef4444', color: '#fff', fontSize: '0.72rem', fontWeight: 800,
+                    padding: '2px 8px', borderRadius: '6px', letterSpacing: '0.05em'
+                  }}>
+                    EMERGENCY UNAVAILABILITY ACTIVE
+                  </span>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    Until {emergencyStatus.emergency_until ? new Date(emergencyStatus.emergency_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                  </span>
+                </div>
+                <h3 style={{ margin: '4px 0 0', fontSize: '1.25rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                  Reason: {emergencyStatus.emergency_reason || 'Medical Emergency'}
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Hospital administrators have been alerted. {emergencyStatus.affected_count || 0} scheduled appointment(s) can be reassigned to available doctors in your department.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div className="doctor-emergency-timer">
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
+                  <Timer size={13} /> Time Remaining
+                </div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#ef4444', fontFamily: 'monospace', marginTop: '2px' }}>
+                  {formatCountdown(emergencyStatus.remaining_seconds)}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleEndEmergency}
+                disabled={emergencyLoading}
+                className="btn-emergency-end-early"
+              >
+                {emergencyLoading ? 'Updating...' : 'End Emergency Early'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: '12px',
+                background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b'
+              }}>
+                <AlertTriangle size={24} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#f59e0b', letterSpacing: '0.06em' }}>
+                    DOCTOR AVAILABILITY CONTROL
+                  </span>
+                </div>
+                <h3 style={{ margin: '2px 0 0', fontSize: '1.1rem', fontWeight: 800, color: 'var(--heading-color)' }}>
+                  Sudden Emergency Unavailability
+                </h3>
+                <p style={{ margin: '2px 0 0', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                  Stepping away for an urgent procedure? Declare 15m or 20m emergency so admin can reassign your patients to department colleagues.
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Presets */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => handleQuickEmergency(15)}
+                className="btn-emergency-quick-15"
+              >
+                ⚡ 15 min Emergency
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickEmergency(20)}
+                className="btn-emergency-quick-20"
+              >
+                ⚡ 20 min Emergency
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickEmergency(30)}
+                className="btn-emergency-quick-neutral"
+              >
+                30 min
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickEmergency(60)}
+                className="btn-emergency-quick-neutral"
+              >
+                1 Hour
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Quick Links */}
@@ -995,6 +1202,92 @@ const DoctorDashboard = () => {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Emergency Confirmation Modal */}
+      {showEmergencyModal && (
+        <div className="emergency-modal-overlay">
+          <div className="emergency-modal-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '12px',
+                background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}>
+                <AlertTriangle size={24} />
+              </div>
+              <div>
+                <h3 className="emergency-modal-title">Declare Emergency Unavailability</h3>
+                <p className="emergency-modal-sub">
+                  Notify hospital administration & enable smart patient reassignment
+                </p>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label className="emergency-modal-label">
+                EMERGENCY DURATION (MINUTES)
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '10px' }}>
+                {[15, 20, 30, 60].map(mins => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => setEmergencyMinsInput(mins)}
+                    className={`emergency-modal-dur-btn ${Number(emergencyMinsInput) === mins ? 'active' : ''}`}
+                  >
+                    {mins}m
+                  </button>
+                ))}
+              </div>
+              <input
+                type="number"
+                min="5"
+                max="480"
+                value={emergencyMinsInput}
+                onChange={e => setEmergencyMinsInput(e.target.value)}
+                placeholder="Or custom minutes..."
+                className="emergency-modal-input"
+              />
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label className="emergency-modal-label">
+                REASON / NOTES
+              </label>
+              <input
+                type="text"
+                value={emergencyReasonInput}
+                onChange={e => setEmergencyReasonInput(e.target.value)}
+                placeholder="e.g. Urgent ER Procedure, Code Blue, Emergency Surgery"
+                className="emergency-modal-input"
+              />
+            </div>
+
+            <div className="emergency-modal-warning">
+              ⚠️ Any patient appointments scheduled within the next <strong style={{ color: '#ef4444' }}>{emergencyMinsInput} minutes</strong> will be flagged as emergency-affected and sent to the Admin Portal for instant reassignment to an available doctor from your department.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                type="button"
+                onClick={() => setShowEmergencyModal(false)}
+                disabled={emergencyLoading}
+                className="emergency-modal-btn-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmEmergency}
+                disabled={emergencyLoading}
+                className="emergency-modal-btn-confirm"
+              >
+                {emergencyLoading ? 'Declaring...' : 'Confirm Emergency Unavailability'}
+              </button>
+            </div>
           </div>
         </div>
       )}

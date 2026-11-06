@@ -55,6 +55,8 @@ class DoctorProfile(models.Model):
     bio = models.TextField(blank=True, default='')
     license_number = models.CharField(max_length=100, blank=True, default='')
     years_experience = models.PositiveIntegerField(default=0)
+    emergency_until = models.DateTimeField(null=True, blank=True)
+    emergency_reason = models.CharField(max_length=200, blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -106,6 +108,9 @@ class Appointment(models.Model):
     reason_for_visit = models.TextField(blank=True)
     cancellation_reason = models.TextField(blank=True, default='')
     cancelled_by_role = models.CharField(max_length=20, blank=True, default='')
+    is_emergency_affected = models.BooleanField(default=False)
+    reassigned_from_doctor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='reassigned_out_appointments')
+    emergency_notes = models.CharField(max_length=255, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -281,6 +286,9 @@ class NotificationType(models.TextChoices):
     APPOINTMENT_CANCELLED = "APPOINTMENT_CANCELLED", "Appointment Cancelled"
     APPOINTMENT_COMPLETED = "APPOINTMENT_COMPLETED", "Appointment Completed"
     APPOINTMENT_REMINDER = "APPOINTMENT_REMINDER", "30-Min Reminder"
+    APPOINTMENT_MISSED = "APPOINTMENT_MISSED", "Appointment Missed"
+    DOCTOR_EMERGENCY = "DOCTOR_EMERGENCY", "Doctor Emergency"
+    APPOINTMENT_REASSIGNED = "APPOINTMENT_REASSIGNED", "Appointment Reassigned"
     CARE_MESSAGE = "CARE_MESSAGE", "Care Message"
     ADMIN_BROADCAST = "ADMIN_BROADCAST", "Admin Announcement"
     LAB_RESULT = "LAB_RESULT", "Lab Test Notification"

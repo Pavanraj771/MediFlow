@@ -51,6 +51,9 @@ api.interceptors.response.use(
 export const authService = {
   sendEmailOTP: async (email) => (await api.post('/auth/email/send-otp/', { email })).data,
   verifyEmailOTP: async (email, otp) => (await api.post('/auth/email/verify-otp/', { email, otp })).data,
+  requestPasswordResetOTP: async (email) => (await api.post('/auth/password-reset/send-otp/', { email })).data,
+  verifyPasswordResetOTP: async (email, otp) => (await api.post('/auth/password-reset/verify-otp/', { email, otp })).data,
+  confirmPasswordReset: async (data) => (await api.post('/auth/password-reset/confirm/', data)).data,
   login: async (username, password) => (await api.post('/auth/login/', { username, password })).data,
   googleLogin: async (credential) => (await api.post('/auth/google/', { credential })).data,
   register: async (userData) => (await api.post('/auth/register/', userData)).data,
@@ -109,6 +112,12 @@ export const appointmentsService = {
     (await api.get(`/appointments/${appointmentId}/consult/`)).data,
   saveConsultation: async (appointmentId, data) =>
     (await api.post(`/appointments/${appointmentId}/consult/`, data)).data,
+
+  // Doctor Emergency & Reassignment
+  declareDoctorEmergency: async (data) => (await api.post('/appointments/doctor-emergency/', data)).data,
+  getDoctorEmergencyStatus: async () => (await api.get('/appointments/emergency-status/')).data,
+  getReplacementCandidates: async (appointmentId) => (await api.get(`/appointments/${appointmentId}/replacement-candidates/`)).data,
+  reassignDoctor: async (appointmentId, data) => (await api.post(`/appointments/${appointmentId}/reassign-doctor/`, data)).data,
 
   // Doctor schedule
   getSchedules: async () => (await api.get('/appointments/schedules/')).data,

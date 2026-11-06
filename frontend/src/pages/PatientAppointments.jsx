@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Calendar, Clock, UserRound, X, Plus, CalendarCheck,
   CalendarDays, History, XCircle, AlertCircle, Stethoscope, ChevronRight,
-  Search, RotateCcw, Star, MessageSquare
+  Search, RotateCcw, Star, MessageSquare, Sparkles, AlertTriangle
 } from 'lucide-react';
 import PatientAvatarMenu from '../components/PatientAvatarMenu';
 import DoctorReviewModal from '../components/DoctorReviewModal';
@@ -632,6 +632,39 @@ const PatientAppointments = () => {
                             Cancelled by you
                           </p>
                         )}
+                        {apt.status === 'NO_SHOW' && (
+                          <div style={{
+                            margin: '6px 0 0', padding: '6px 12px', borderRadius: '8px',
+                            background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)',
+                            color: '#f59e0b', fontSize: '0.82rem',
+                          }}>
+                            <strong>Missed Appointment (No-Show):</strong> The scheduled consultation time has passed without completion.
+                          </div>
+                        )}
+                        {apt.reassigned_from_doctor_details && (
+                          <div style={{
+                            margin: '6px 0 0', padding: '6px 12px', borderRadius: '8px',
+                            background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)',
+                            color: '#10b981', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px'
+                          }}>
+                            <Sparkles size={14} />
+                            <span>
+                              Reassigned to <strong>Dr. {apt.doctor_details?.full_name}</strong> from <strong>Dr. {apt.reassigned_from_doctor_details?.full_name}</strong> due to doctor emergency. Your consultation remains confirmed.
+                            </span>
+                          </div>
+                        )}
+                        {apt.is_emergency_affected && apt.status === 'SCHEDULED' && (
+                          <div style={{
+                            margin: '6px 0 0', padding: '6px 12px', borderRadius: '8px',
+                            background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)',
+                            color: '#ef4444', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px'
+                          }}>
+                            <AlertTriangle size={14} />
+                            <span>
+                              Doctor is currently handling an emergency procedure. Hospital administration is actively matching an available doctor from the same department for your appointment.
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -712,6 +745,34 @@ const PatientAppointments = () => {
                             <span>Rate & Review</span>
                           </button>
                         )
+                      )}
+
+                      {apt.status === 'NO_SHOW' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (apt.doctor) setSelectedDoctor(apt.doctor);
+                            if (apt.doctor_details?.department) setSelectedDept(apt.doctor_details.department);
+                            setIsBooking(true);
+                          }}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 14px',
+                            borderRadius: '10px',
+                            background: 'rgba(245, 158, 11, 0.12)',
+                            color: '#f59e0b',
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
+                            fontWeight: 700,
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                          }}
+                          title="Re-book consultation with this doctor"
+                        >
+                          <Calendar size={14} />
+                          <span>Re-book Visit</span>
+                        </button>
                       )}
                     </div>
                   </div>
